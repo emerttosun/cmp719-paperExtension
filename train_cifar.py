@@ -12,6 +12,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from urllib.error import HTTPError, URLError
 from tqdm import tqdm
 
 from src.fasternet_ext.metrics import count_parameters, measure_latency_ms, try_count_flops
@@ -25,7 +26,7 @@ CIFAR100_STD = (0.2675, 0.2565, 0.2761)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train FasterNet-T0/T1 on CIFAR-100.")
     parser.add_argument("--model", choices=["fasternet_t0", "fasternet_t1"], default="fasternet_t0")
-    parser.add_argument("--dataset", choices=["cifar100"], default="cifar100")
+    parser.add_argument("--dataset", choices=["cifar100", "fake_cifar100"], default="cifar100")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--output-dir", default="runs")
     parser.add_argument("--epochs", type=int, default=1)
@@ -42,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-val-batches", type=int, default=None)
     parser.add_argument("--measure-latency", action="store_true")
     parser.add_argument("--save-gate-stats", action="store_true")
+    parser.add_argument(
+        "--fallback-fake-data",
+        action="store_true",
+        help="Use synthetic CIFAR-shaped data if CIFAR-100 download is temporarily unavailable.",
+    )
     return parser.parse_args()
 
 
@@ -56,6 +62,55 @@ def resolve_device(requested: str) -> torch.device:
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(requested)
+
+
+def build_fake_cifar100(args: argparse.Namespace) -> tuple[datasets.FakeData, datasets.FakeData]:
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+        ]
+    )
+    image_shape = (3, args.image_size, args.image_size)
+    train_set = datasets.FakeData(
+        size=1024,
+        image_size=image_shape,
+        num_classes=100,
+        transform=transform,
+        random_offset=args.seed,
+    )
+    val_set = datasets.FakeData(
+        size=256,
+        image_size=image_shape,
+        num_classes=100,
+        transform=transform,
+        random_offset=args.seed + 10_000,
+    )
+    return train_set, val_set
+
+
+def build_cifar100(args: argparse.Namespace, train_transform, val_transform):
+    try:
+        train_set = datasets.CIFAR100(
+            args.data_dir, train=True, download=True, transform=train_transform
+        )
+        val_set = datasets.CIFAR100(
+            args.data_dir, train=False, download=True, transform=val_transform
+        )
+        return train_set, val_set
+    except (HTTPError, URLError, RuntimeError) as exc:
+        if args.fallback_fake_data:
+            print(
+                "CIFAR-100 download failed; falling back to synthetic FakeData for pipeline testing. "
+                "Do not report FakeData accuracy as a real result."
+            )
+            print(f"Download error was: {exc}")
+            return build_fake_cifar100(args)
+        raise RuntimeError(
+            "CIFAR-100 download failed. This is usually a temporary network/server issue. "
+            "Retry the command later, or add --fallback-fake-data only for smoke-testing the "
+            "training pipeline without real CIFAR-100 results."
+        ) from exc
 
 
 def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader, int]:
@@ -76,8 +131,10 @@ def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader,
             transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
         ]
     )
-    train_set = datasets.CIFAR100(args.data_dir, train=True, download=True, transform=train_transform)
-    val_set = datasets.CIFAR100(args.data_dir, train=False, download=True, transform=val_transform)
+    if args.dataset == "fake_cifar100":
+        train_set, val_set = build_fake_cifar100(args)
+    else:
+        train_set, val_set = build_cifar100(args, train_transform, val_transform)
     train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,

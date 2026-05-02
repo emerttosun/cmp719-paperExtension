@@ -30,6 +30,22 @@ python train_cifar.py \
   --limit-val-batches 2
 ```
 
+If CIFAR-100 download temporarily fails with an HTTP 503 error, use synthetic
+data only to verify the training pipeline:
+
+```bash
+python train_cifar.py \
+  --model fasternet_t0 \
+  --dataset cifar100 \
+  --epochs 1 \
+  --batch-size 64 \
+  --limit-train-batches 5 \
+  --limit-val-batches 2 \
+  --fallback-fake-data
+```
+
+Do not report FakeData accuracy as a real CIFAR-100 result.
+
 CGM variant:
 
 ```bash
