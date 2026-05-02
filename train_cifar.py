@@ -22,6 +22,8 @@ from src.fasternet_ext.models.fasternet import build_fasternet
 
 CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
 CIFAR100_STD = (0.2675, 0.2565, 0.2761)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 CIFAR100_ARCHIVE = "cifar-100-python.tar.gz"
 CIFAR100_MD5 = "eb9058c3a382ffc7106e4002c42a8d85"
 CIFAR100_MIRRORS = (
@@ -30,9 +32,13 @@ CIFAR100_MIRRORS = (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train FasterNet-T0/T1 on CIFAR-100.")
+    parser = argparse.ArgumentParser(description="Train FasterNet-T0/T1 on CIFAR-100 or Tiny-ImageNet.")
     parser.add_argument("--model", choices=["fasternet_t0", "fasternet_t1"], default="fasternet_t0")
-    parser.add_argument("--dataset", choices=["cifar100", "fake_cifar100"], default="cifar100")
+    parser.add_argument(
+        "--dataset",
+        choices=["cifar100", "tiny_imagenet", "fake_cifar100"],
+        default="cifar100",
+    )
     parser.add_argument(
         "--dataset-source",
         choices=["hf", "torchvision"],
@@ -106,9 +112,11 @@ def build_fake_cifar100(args: argparse.Namespace) -> tuple[datasets.FakeData, da
     return train_set, val_set
 
 
-class HFCIFAR100Dataset(Dataset):
-    def __init__(self, split, transform) -> None:
+class HFImageClassificationDataset(Dataset):
+    def __init__(self, split, image_key: str, label_key: str, transform) -> None:
         self.split = split
+        self.image_key = image_key
+        self.label_key = label_key
         self.transform = transform
 
     def __len__(self) -> int:
@@ -116,11 +124,16 @@ class HFCIFAR100Dataset(Dataset):
 
     def __getitem__(self, index: int):
         item = self.split[index]
-        image = item["img"].convert("RGB")
-        label = int(item["fine_label"])
+        image = item[self.image_key].convert("RGB")
+        label = int(item[self.label_key])
         if self.transform is not None:
             image = self.transform(image)
         return image, label
+
+
+class HFCIFAR100Dataset(HFImageClassificationDataset):
+    def __init__(self, split, transform) -> None:
+        super().__init__(split, image_key="img", label_key="fine_label", transform=transform)
 
 
 def build_hf_cifar100(args: argparse.Namespace, train_transform, val_transform):
@@ -148,6 +161,31 @@ def build_hf_cifar100(args: argparse.Namespace, train_transform, val_transform):
         raise RuntimeError(
             "Hugging Face CIFAR-100 load failed. Retry the command later, or add "
             "--fallback-fake-data only for smoke-testing the training pipeline."
+        ) from exc
+
+
+def build_hf_tiny_imagenet(args: argparse.Namespace, train_transform, val_transform):
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError(
+            "Tiny-ImageNet requires the `datasets` package. "
+            "Run `pip install -r requirements.txt` and try again."
+        ) from exc
+
+    try:
+        dataset = load_dataset("zh-plus/tiny-imagenet", cache_dir=args.data_dir)
+        train_set = HFImageClassificationDataset(
+            dataset["train"], image_key="image", label_key="label", transform=train_transform
+        )
+        val_set = HFImageClassificationDataset(
+            dataset["valid"], image_key="image", label_key="label", transform=val_transform
+        )
+        return train_set, val_set
+    except Exception as exc:
+        raise RuntimeError(
+            "Hugging Face Tiny-ImageNet load failed. Retry later or verify that "
+            "`zh-plus/tiny-imagenet` is accessible from the current runtime."
         ) from exc
 
 
@@ -198,6 +236,7 @@ def build_cifar100(args: argparse.Namespace, train_transform, val_transform):
 
 
 def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader, int]:
+    mean, std = (IMAGENET_MEAN, IMAGENET_STD) if args.dataset == "tiny_imagenet" else (CIFAR100_MEAN, CIFAR100_STD)
     resize = [] if args.image_size == 32 else [transforms.Resize((args.image_size, args.image_size))]
     train_transform = transforms.Compose(
         [
@@ -205,22 +244,28 @@ def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader,
             transforms.RandomCrop(args.image_size, padding=4 if args.image_size == 32 else 0),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+            transforms.Normalize(mean, std),
         ]
     )
     val_transform = transforms.Compose(
         [
             *resize,
             transforms.ToTensor(),
-            transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+            transforms.Normalize(mean, std),
         ]
     )
     if args.dataset == "fake_cifar100":
         train_set, val_set = build_fake_cifar100(args)
+        num_classes = 100
+    elif args.dataset == "tiny_imagenet":
+        train_set, val_set = build_hf_tiny_imagenet(args, train_transform, val_transform)
+        num_classes = 200
     elif args.dataset_source == "hf":
         train_set, val_set = build_hf_cifar100(args, train_transform, val_transform)
+        num_classes = 100
     else:
         train_set, val_set = build_cifar100(args, train_transform, val_transform)
+        num_classes = 100
     train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,
@@ -235,7 +280,7 @@ def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
     )
-    return train_loader, val_loader, 100
+    return train_loader, val_loader, num_classes
 
 
 def run_epoch(
@@ -325,6 +370,7 @@ def main() -> None:
     summary = {
         "model": args.model,
         "dataset": args.dataset,
+        "image_size": args.image_size,
         "cgm_placement": args.cgm_placement,
         "cgm_reduction": args.cgm_reduction,
         "params": params,
