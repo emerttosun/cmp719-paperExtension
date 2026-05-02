@@ -192,7 +192,7 @@ For interpretability, the gate values produced by CGM will be collected across l
 
 \subsection{Preliminary status}
 
-At the time of this progress report, the project has completed paper selection, extension design, repository inspection, and experimental planning. The official implementation has a clean insertion point for the proposed extension: the \texttt{MLPBlock} applies \texttt{Partial\_conv3} before the pointwise MLP, so CGM can be added immediately after the spatial mixing step. The main engineering work that remains is dataset support and experiment execution.
+At the time of this progress report, the project has completed paper selection, extension design, repository inspection, and an initial implementation scaffold. A dependency-light PyTorch version of FasterNet-T0/T1 has been prepared for CIFAR-100 experiments, including a command-line training script, a Colab/Kaggle notebook, parameter/FLOP/latency utilities, and a configurable CGM extension. The implementation preserves the clean insertion point identified in the official repository: CGM is applied immediately after \texttt{PartialConv3} and before the pointwise MLP.
 
 \begin{table}[t]
 \caption{Current progress and expected next steps.}
@@ -204,16 +204,16 @@ Component & Status & Notes \\
 \midrule
 Paper and repository selection & Completed & FasterNet official PyTorch code selected \\
 Extension design & Completed & CGM after PConv on processed channels \\
-Dataset pipeline & In progress & Need CIFAR-100/Tiny-ImageNet support \\
-Baseline training & Planned & FasterNet-T0 first, T1 if feasible \\
-CGM implementation & Planned & Minimal changes to FasterNet block \\
-Latency/FLOP analysis & Planned & Use official fvcore and latency utilities \\
-Gate visualization & Planned & Save and plot gate activations \\
+Dataset pipeline & Initial version completed & CIFAR-100 auto-download via torchvision \\
+Baseline training & Ready for smoke test & FasterNet-T0 command-line run prepared \\
+CGM implementation & Initial version completed & Supports none/all/early/late placement \\
+Latency/FLOP analysis & Initial version completed & Uses fvcore and repeated forward passes \\
+Gate visualization & Initial version completed & Saves layer-wise mean gate activations \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-No final numerical training results are reported yet. This is intentional: the current stage is a progress report, and the next milestone is to obtain a verified FasterNet-T0 baseline on CIFAR-100. After the baseline is stable, the same training script will be used for CGM variants so that any performance difference is attributable to the proposed extension rather than to mismatched experimental settings.
+No final numerical training results are reported yet. This is intentional: the current stage is a progress report, and the next milestone is to run the prepared FasterNet-T0 baseline smoke test on Colab/Kaggle using CIFAR-100. After the baseline is stable, the same training script will be used for CGM variants so that any performance difference is attributable to the proposed extension rather than to mismatched experimental settings.
 
 \section{Expected Contribution}
 
