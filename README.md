@@ -18,27 +18,32 @@ pip install -r requirements.txt
 python train_cifar.py --model fasternet_t0 --dataset cifar100 --epochs 1 --batch-size 64
 ```
 
+By default, CIFAR-100 is loaded from the Hugging Face dataset
+`uoft-cs/cifar100`, avoiding the occasionally unavailable Toronto CIFAR host.
+To force the original torchvision/Toronto loader, add
+`--dataset-source torchvision`.
+
 Fast smoke test:
 
 ```bash
 python train_cifar.py \
   --model fasternet_t0 \
   --dataset cifar100 \
+  --dataset-source hf \
   --epochs 1 \
   --batch-size 64 \
   --limit-train-batches 5 \
   --limit-val-batches 2
 ```
 
-If CIFAR-100 download temporarily fails with an HTTP 503 error, use synthetic
-data only to verify the training pipeline. The script now tries a Zenodo mirror
-first, so this fallback should be needed only if both the official CIFAR host
-and the mirror are unavailable:
+If CIFAR-100 loading temporarily fails, use synthetic data only to verify the
+training pipeline:
 
 ```bash
 python train_cifar.py \
   --model fasternet_t0 \
   --dataset cifar100 \
+  --dataset-source hf \
   --epochs 1 \
   --batch-size 64 \
   --limit-train-batches 5 \
@@ -54,6 +59,7 @@ CGM variant:
 python train_cifar.py \
   --model fasternet_t0 \
   --dataset cifar100 \
+  --dataset-source hf \
   --epochs 1 \
   --batch-size 64 \
   --cgm-placement all \

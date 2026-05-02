@@ -10,7 +10,7 @@ from typing import Optional
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 from torchvision.datasets.utils import download_and_extract_archive
 from urllib.error import HTTPError, URLError
@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train FasterNet-T0/T1 on CIFAR-100.")
     parser.add_argument("--model", choices=["fasternet_t0", "fasternet_t1"], default="fasternet_t0")
     parser.add_argument("--dataset", choices=["cifar100", "fake_cifar100"], default="cifar100")
+    parser.add_argument(
+        "--dataset-source",
+        choices=["hf", "torchvision"],
+        default="hf",
+        help="Use Hugging Face datasets by default; torchvision uses the original CIFAR URL.",
+    )
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--output-dir", default="runs")
     parser.add_argument("--epochs", type=int, default=1)
@@ -98,6 +104,51 @@ def build_fake_cifar100(args: argparse.Namespace) -> tuple[datasets.FakeData, da
         random_offset=args.seed + 10_000,
     )
     return train_set, val_set
+
+
+class HFCIFAR100Dataset(Dataset):
+    def __init__(self, split, transform) -> None:
+        self.split = split
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.split)
+
+    def __getitem__(self, index: int):
+        item = self.split[index]
+        image = item["img"].convert("RGB")
+        label = int(item["fine_label"])
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, label
+
+
+def build_hf_cifar100(args: argparse.Namespace, train_transform, val_transform):
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError(
+            "Hugging Face dataset source requires the `datasets` package. "
+            "Run `pip install -r requirements.txt` and try again."
+        ) from exc
+
+    try:
+        dataset = load_dataset("uoft-cs/cifar100", cache_dir=args.data_dir)
+        train_set = HFCIFAR100Dataset(dataset["train"], train_transform)
+        val_set = HFCIFAR100Dataset(dataset["test"], val_transform)
+        return train_set, val_set
+    except Exception as exc:
+        if args.fallback_fake_data:
+            print(
+                "Hugging Face CIFAR-100 load failed; falling back to synthetic FakeData "
+                "for pipeline testing. Do not report FakeData accuracy as a real result."
+            )
+            print(f"Hugging Face error was: {exc}")
+            return build_fake_cifar100(args)
+        raise RuntimeError(
+            "Hugging Face CIFAR-100 load failed. Retry the command later, or add "
+            "--fallback-fake-data only for smoke-testing the training pipeline."
+        ) from exc
 
 
 def build_cifar100(args: argparse.Namespace, train_transform, val_transform):
@@ -166,6 +217,8 @@ def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader,
     )
     if args.dataset == "fake_cifar100":
         train_set, val_set = build_fake_cifar100(args)
+    elif args.dataset_source == "hf":
+        train_set, val_set = build_hf_cifar100(args, train_transform, val_transform)
     else:
         train_set, val_set = build_cifar100(args, train_transform, val_transform)
     train_loader = DataLoader(
