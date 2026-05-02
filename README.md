@@ -85,6 +85,11 @@ Supported CGM modes:
 - `sigmoid`: original gate, `x = x * sigmoid(gate)`
 - `residual`: identity-preserving gate, `x = x * (1 + alpha * (sigmoid(gate) - 0.5))`
 
+Supported CGM types:
+
+- `se`: SE-style gate generator, `GAP -> 1x1 Conv -> ReLU -> 1x1 Conv -> Sigmoid`
+- `eca`: ECA-style gate generator, `GAP -> 1D channel Conv -> Sigmoid`
+
 Residual CGM example:
 
 ```bash
@@ -99,6 +104,22 @@ python train_classification.py \
   --measure-latency \
   --save-gate-stats \
   --output-dir runs_cifar_residual_e20
+```
+
+ECA-style CGM example:
+
+```bash
+python train_classification.py \
+  --model fasternet_t0 \
+  --dataset cifar100 \
+  --dataset-source hf \
+  --epochs 20 \
+  --batch-size 128 \
+  --cgm-placement early \
+  --cgm-type eca \
+  --measure-latency \
+  --save-gate-stats \
+  --output-dir runs_cifar_eca_e20
 ```
 
 ## Suggested preliminary experiments

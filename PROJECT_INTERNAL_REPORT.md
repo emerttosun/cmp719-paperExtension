@@ -189,3 +189,17 @@ Ilk denenecek CIFAR komutu:
 ```bash
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-mode residual --measure-latency --save-gate-stats --output-dir runs_cifar_residual_e20
 ```
+
+Residual CGM seed 42/7 sonucunda baseline'dan iyi ama sigmoid CGM-Early ortalamasindan biraz dusuk kaldi. Bu nedenle bir sonraki aday ECA-style CGM'dir.
+
+ECA-style CGM fikri:
+
+- Mevcut SE-style CGM bottleneck kullanir: `GAP -> 1x1 Conv -> ReLU -> 1x1 Conv -> Sigmoid`.
+- ECA-style CGM bottleneck kullanmaz: `GAP -> 1D channel Conv -> Sigmoid`.
+- Amac, PConv sonrasi channel interaction'i daha az bilgi sikistirmasiyla yakalamaktir.
+
+Ilk denenecek ECA komutu:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-type eca --measure-latency --save-gate-stats --output-dir runs_cifar_eca_e20
+```
