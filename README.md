@@ -15,7 +15,7 @@ adding meaningful FLOP or latency overhead.
 
 ```bash
 pip install -r requirements.txt
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --epochs 1 --batch-size 64
+python train_classification.py --model fasternet_t0 --dataset cifar100 --epochs 1 --batch-size 64
 ```
 
 By default, CIFAR-100 is loaded from the Hugging Face dataset
@@ -26,7 +26,7 @@ To force the original torchvision/Toronto loader, add
 Fast smoke test:
 
 ```bash
-python train_cifar.py \
+python train_classification.py \
   --model fasternet_t0 \
   --dataset cifar100 \
   --dataset-source hf \
@@ -40,7 +40,7 @@ If CIFAR-100 loading temporarily fails, use synthetic data only to verify the
 training pipeline:
 
 ```bash
-python train_cifar.py \
+python train_classification.py \
   --model fasternet_t0 \
   --dataset cifar100 \
   --dataset-source hf \
@@ -56,7 +56,7 @@ Do not report FakeData accuracy as a real CIFAR-100 result.
 CGM variant:
 
 ```bash
-python train_cifar.py \
+python train_classification.py \
   --model fasternet_t0 \
   --dataset cifar100 \
   --dataset-source hf \
@@ -83,10 +83,10 @@ Supported CGM placements:
 ## Suggested preliminary experiments
 
 ```bash
-python train_cifar.py --model fasternet_t0 --cgm-placement none --epochs 20 --batch-size 128 --measure-latency
-python train_cifar.py --model fasternet_t0 --cgm-placement all --epochs 20 --batch-size 128 --measure-latency --save-gate-stats
-python train_cifar.py --model fasternet_t0 --cgm-placement early --epochs 20 --batch-size 128 --measure-latency
-python train_cifar.py --model fasternet_t0 --cgm-placement late --epochs 20 --batch-size 128 --measure-latency
+python train_classification.py --model fasternet_t0 --cgm-placement none --epochs 20 --batch-size 128 --measure-latency
+python train_classification.py --model fasternet_t0 --cgm-placement all --epochs 20 --batch-size 128 --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t0 --cgm-placement early --epochs 20 --batch-size 128 --measure-latency
+python train_classification.py --model fasternet_t0 --cgm-placement late --epochs 20 --batch-size 128 --measure-latency
 ```
 
 Outputs are written under `runs/` as CSV metrics and JSON summaries.
@@ -107,7 +107,7 @@ larger, more ImageNet-like dataset. The loader uses the Hugging Face dataset
 Smoke test:
 
 ```bash
-python train_cifar.py \
+python train_classification.py \
   --dataset tiny_imagenet \
   --dataset-source hf \
   --image-size 224 \
@@ -122,8 +122,8 @@ python train_cifar.py \
 Recommended first comparison:
 
 ```bash
-python train_cifar.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement none --measure-latency --output-dir runs_tiny_e20
-python train_cifar.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement early --measure-latency --save-gate-stats --output-dir runs_tiny_e20
+python train_classification.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement none --measure-latency --output-dir runs_tiny_e20
+python train_classification.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement early --measure-latency --save-gate-stats --output-dir runs_tiny_e20
 ```
 
 If Colab runs out of memory, reduce `--batch-size` to `32`.

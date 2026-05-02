@@ -109,8 +109,8 @@ Bu figure sunu gostermek icin kullanilacak:
 Progress report'a veya README'ye su komutlar net yazilmali:
 
 ```bash
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --measure-latency
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --measure-latency
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --measure-latency --save-gate-stats
 ```
 
 Bu, sonuclarin nasil uretildigini gosterir.
@@ -126,8 +126,8 @@ Su an sonuclar tek seed ile alindi. Accuracy farki kucuk oldugu icin seed tekrar
 Onerilen minimum tekrar:
 
 ```bash
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --seed 7 --measure-latency
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --seed 7 --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --seed 7 --measure-latency
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --seed 7 --measure-latency --save-gate-stats
 ```
 
 Amac:
@@ -141,8 +141,8 @@ CGM icinde bottleneck reduction ratio su an `r=4`.
 Onerilen deneyler:
 
 ```bash
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --cgm-reduction 8 --measure-latency --save-gate-stats
-python train_cifar.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --cgm-reduction 16 --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --cgm-reduction 8 --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t0 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --cgm-reduction 16 --measure-latency --save-gate-stats
 ```
 
 Amac:
@@ -199,8 +199,8 @@ T0 en kucuk model. Finalde T1 denenirse extension'in daha buyuk modelde de ise y
 Minimum T1 deneyleri:
 
 ```bash
-python train_cifar.py --model fasternet_t1 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --measure-latency
-python train_cifar.py --model fasternet_t1 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --measure-latency --save-gate-stats
+python train_classification.py --model fasternet_t1 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement none --measure-latency
+python train_classification.py --model fasternet_t1 --dataset cifar100 --dataset-source hf --epochs 20 --batch-size 128 --cgm-placement early --measure-latency --save-gate-stats
 ```
 
 Beklenen katkisi:

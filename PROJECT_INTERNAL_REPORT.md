@@ -108,14 +108,14 @@ Tum varyantlari hemen calistirmak yerine once en kritik iki varyanti calistirmak
 Onerilen ilk smoke test:
 
 ```bash
-python train_cifar.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 1 --batch-size 64 --limit-train-batches 5 --limit-val-batches 2 --measure-latency
+python train_classification.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 1 --batch-size 64 --limit-train-batches 5 --limit-val-batches 2 --measure-latency
 ```
 
 Onerilen preliminary Tiny-ImageNet deneyleri:
 
 ```bash
-python train_cifar.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement none --measure-latency --output-dir runs_tiny_e20
-python train_cifar.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement early --measure-latency --save-gate-stats --output-dir runs_tiny_e20
+python train_classification.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement none --measure-latency --output-dir runs_tiny_e20
+python train_classification.py --dataset tiny_imagenet --dataset-source hf --image-size 224 --model fasternet_t0 --epochs 20 --batch-size 64 --cgm-placement early --measure-latency --save-gate-stats --output-dir runs_tiny_e20
 ```
 
 Not: 224x224 input CIFAR deneylerinden cok daha yavas olacaktir. Colab GPU memory sorun yaratirsa `--batch-size 32` kullanilacak.
