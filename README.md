@@ -31,7 +31,9 @@ python train_cifar.py \
 ```
 
 If CIFAR-100 download temporarily fails with an HTTP 503 error, use synthetic
-data only to verify the training pipeline:
+data only to verify the training pipeline. The script now tries a Zenodo mirror
+first, so this fallback should be needed only if both the official CIFAR host
+and the mirror are unavailable:
 
 ```bash
 python train_cifar.py \

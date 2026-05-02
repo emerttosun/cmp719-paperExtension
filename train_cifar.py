@@ -12,6 +12,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from torchvision.datasets.utils import download_and_extract_archive
 from urllib.error import HTTPError, URLError
 from tqdm import tqdm
 
@@ -21,6 +22,11 @@ from src.fasternet_ext.models.fasternet import build_fasternet
 
 CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
 CIFAR100_STD = (0.2675, 0.2565, 0.2761)
+CIFAR100_ARCHIVE = "cifar-100-python.tar.gz"
+CIFAR100_MD5 = "eb9058c3a382ffc7106e4002c42a8d85"
+CIFAR100_MIRRORS = (
+    "https://zenodo.org/records/10089977/files/cifar-100-python.tar.gz?download=1",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +49,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit-val-batches", type=int, default=None)
     parser.add_argument("--measure-latency", action="store_true")
     parser.add_argument("--save-gate-stats", action="store_true")
+    parser.add_argument(
+        "--disable-cifar-mirror",
+        action="store_true",
+        help="Do not try mirror downloads if the default torchvision CIFAR-100 URL fails.",
+    )
     parser.add_argument(
         "--fallback-fake-data",
         action="store_true",
@@ -99,6 +110,28 @@ def build_cifar100(args: argparse.Namespace, train_transform, val_transform):
         )
         return train_set, val_set
     except (HTTPError, URLError, RuntimeError) as exc:
+        if not args.disable_cifar_mirror:
+            print(f"Default CIFAR-100 download failed: {exc}")
+            print("Trying CIFAR-100 mirror download...")
+            for mirror_url in CIFAR100_MIRRORS:
+                try:
+                    download_and_extract_archive(
+                        url=mirror_url,
+                        download_root=args.data_dir,
+                        filename=CIFAR100_ARCHIVE,
+                        md5=CIFAR100_MD5,
+                    )
+                    train_set = datasets.CIFAR100(
+                        args.data_dir, train=True, download=False, transform=train_transform
+                    )
+                    val_set = datasets.CIFAR100(
+                        args.data_dir, train=False, download=False, transform=val_transform
+                    )
+                    print(f"CIFAR-100 loaded from mirror: {mirror_url}")
+                    return train_set, val_set
+                except (HTTPError, URLError, RuntimeError) as mirror_exc:
+                    print(f"Mirror failed: {mirror_url}")
+                    print(f"Mirror error was: {mirror_exc}")
         if args.fallback_fake_data:
             print(
                 "CIFAR-100 download failed; falling back to synthetic FakeData for pipeline testing. "
