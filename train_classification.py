@@ -56,6 +56,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--cgm-placement", choices=["none", "all", "early", "late"], default="none")
     parser.add_argument("--cgm-reduction", type=int, default=4)
+    parser.add_argument(
+        "--cgm-mode",
+        choices=["sigmoid", "residual"],
+        default="sigmoid",
+        help="sigmoid multiplies by gates in [0,1]; residual scales around identity.",
+    )
+    parser.add_argument(
+        "--cgm-alpha",
+        type=float,
+        default=0.5,
+        help="Residual CGM strength. With alpha=0.5, scale is in [0.75, 1.25].",
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--limit-train-batches", type=int, default=None)
     parser.add_argument("--limit-val-batches", type=int, default=None)
@@ -332,6 +344,8 @@ def main() -> None:
         image_size=args.image_size,
         cgm_placement=args.cgm_placement,
         cgm_reduction=args.cgm_reduction,
+        cgm_mode=args.cgm_mode,
+        cgm_alpha=args.cgm_alpha,
     ).to(device)
 
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -340,7 +354,10 @@ def main() -> None:
 
     params = count_parameters(model)
     flops = try_count_flops(model, args.image_size, device)
-    print(f"Model: {args.model} | CGM: {args.cgm_placement} | params: {params:,}")
+    print(
+        f"Model: {args.model} | CGM: {args.cgm_placement} | "
+        f"mode: {args.cgm_mode} | params: {params:,}"
+    )
     if flops is not None:
         print(f"FLOPs: {flops / 1e6:.2f}M")
 
@@ -373,6 +390,8 @@ def main() -> None:
         "image_size": args.image_size,
         "cgm_placement": args.cgm_placement,
         "cgm_reduction": args.cgm_reduction,
+        "cgm_mode": args.cgm_mode,
+        "cgm_alpha": args.cgm_alpha,
         "params": params,
         "flops": flops,
     }
@@ -381,6 +400,8 @@ def main() -> None:
         print(f"Latency: {summary['latency_ms_b1']:.3f} ms/image")
     if args.save_gate_stats and hasattr(model, "collect_gate_means"):
         summary["gate_means"] = model.collect_gate_means()
+    if args.save_gate_stats and hasattr(model, "collect_scale_means"):
+        summary["scale_means"] = model.collect_scale_means()
 
     summary_path = output_dir / f"{args.model}_{args.cgm_placement}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

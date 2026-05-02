@@ -17,6 +17,7 @@ from torch import Tensor, nn
 
 
 CGMPlacement = Literal["none", "all", "early", "late"]
+CGMMode = Literal["sigmoid", "residual"]
 
 
 class DropPath(nn.Module):
@@ -42,8 +43,18 @@ class DropPath(nn.Module):
 class ChannelGateModule(nn.Module):
     """SE-style gate for only the PConv-processed channel subset."""
 
-    def __init__(self, channels: int, reduction: int = 4) -> None:
+    def __init__(
+        self,
+        channels: int,
+        reduction: int = 4,
+        mode: CGMMode = "sigmoid",
+        alpha: float = 0.5,
+    ) -> None:
         super().__init__()
+        if mode not in {"sigmoid", "residual"}:
+            raise ValueError(f"Unsupported CGM mode: {mode}")
+        self.mode = mode
+        self.alpha = alpha
         hidden = max(channels // reduction, 1)
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.gate = nn.Sequential(
@@ -53,11 +64,14 @@ class ChannelGateModule(nn.Module):
             nn.Sigmoid(),
         )
         self.latest_gate: Optional[Tensor] = None
+        self.latest_scale: Optional[Tensor] = None
 
     def forward(self, x: Tensor) -> Tensor:
         gate = self.gate(self.pool(x))
         self.latest_gate = gate.detach()
-        return x * gate
+        scale = 1.0 + self.alpha * (gate - 0.5) if self.mode == "residual" else gate
+        self.latest_scale = scale.detach()
+        return x * scale
 
 
 class PartialConv3(nn.Module):
@@ -70,6 +84,8 @@ class PartialConv3(nn.Module):
         forward_type: Literal["split_cat", "slicing"] = "split_cat",
         use_cgm: bool = False,
         cgm_reduction: int = 4,
+        cgm_mode: CGMMode = "sigmoid",
+        cgm_alpha: float = 0.5,
     ) -> None:
         super().__init__()
         self.dim_conv3 = dim // n_div
@@ -79,7 +95,14 @@ class PartialConv3(nn.Module):
             self.dim_conv3, self.dim_conv3, kernel_size=3, stride=1, padding=1, bias=False
         )
         self.channel_gate = (
-            ChannelGateModule(self.dim_conv3, reduction=cgm_reduction) if use_cgm else nn.Identity()
+            ChannelGateModule(
+                self.dim_conv3,
+                reduction=cgm_reduction,
+                mode=cgm_mode,
+                alpha=cgm_alpha,
+            )
+            if use_cgm
+            else nn.Identity()
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -114,6 +137,8 @@ class MLPBlock(nn.Module):
         pconv_fw_type: Literal["split_cat", "slicing"],
         use_cgm: bool,
         cgm_reduction: int,
+        cgm_mode: CGMMode,
+        cgm_alpha: float,
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
@@ -123,6 +148,8 @@ class MLPBlock(nn.Module):
             forward_type=pconv_fw_type,
             use_cgm=use_cgm,
             cgm_reduction=cgm_reduction,
+            cgm_mode=cgm_mode,
+            cgm_alpha=cgm_alpha,
         )
         self.mlp = nn.Sequential(
             nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=False),
@@ -160,6 +187,8 @@ class BasicStage(nn.Module):
         pconv_fw_type: Literal["split_cat", "slicing"],
         use_cgm: bool,
         cgm_reduction: int,
+        cgm_mode: CGMMode,
+        cgm_alpha: float,
     ) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
@@ -175,6 +204,8 @@ class BasicStage(nn.Module):
                     pconv_fw_type=pconv_fw_type,
                     use_cgm=use_cgm,
                     cgm_reduction=cgm_reduction,
+                    cgm_mode=cgm_mode,
+                    cgm_alpha=cgm_alpha,
                 )
                 for drop_path_i in drop_path
             ]
@@ -255,6 +286,8 @@ class FasterNet(nn.Module):
         pconv_fw_type: Literal["split_cat", "slicing"] = "split_cat",
         cgm_placement: CGMPlacement = "none",
         cgm_reduction: int = 4,
+        cgm_mode: CGMMode = "sigmoid",
+        cgm_alpha: float = 0.5,
     ) -> None:
         super().__init__()
         if norm_layer != "BN":
@@ -265,6 +298,8 @@ class FasterNet(nn.Module):
         self.num_classes = num_classes
         self.depths = depths
         self.cgm_placement = cgm_placement
+        self.cgm_mode = cgm_mode
+        self.cgm_alpha = cgm_alpha
         self.num_features = int(embed_dim * 2 ** (len(depths) - 1))
 
         self.patch_embed = PatchEmbed(
@@ -294,6 +329,8 @@ class FasterNet(nn.Module):
                     pconv_fw_type=pconv_fw_type,
                     use_cgm=_use_cgm_for_stage(stage_idx, cgm_placement),
                     cgm_reduction=cgm_reduction,
+                    cgm_mode=cgm_mode,
+                    cgm_alpha=cgm_alpha,
                 )
             )
             if stage_idx < len(depths) - 1:
@@ -342,6 +379,14 @@ class FasterNet(nn.Module):
                 stats[name] = float(module.latest_gate.mean().cpu())
         return stats
 
+    @torch.no_grad()
+    def collect_scale_means(self) -> dict[str, float]:
+        stats: dict[str, float] = {}
+        for name, module in self.named_modules():
+            if isinstance(module, ChannelGateModule) and module.latest_scale is not None:
+                stats[name] = float(module.latest_scale.mean().cpu())
+        return stats
+
 
 @dataclass(frozen=True)
 class FasterNetConfig:
@@ -362,6 +407,8 @@ def build_fasternet(
     image_size: int,
     cgm_placement: CGMPlacement = "none",
     cgm_reduction: int = 4,
+    cgm_mode: CGMMode = "sigmoid",
+    cgm_alpha: float = 0.5,
 ) -> FasterNet:
     cfg = MODEL_CONFIGS[model_name]
     patch_size = 2 if image_size <= 64 else 4
@@ -374,6 +421,8 @@ def build_fasternet(
         patch_stride=patch_size,
         cgm_placement=cgm_placement,
         cgm_reduction=cgm_reduction,
+        cgm_mode=cgm_mode,
+        cgm_alpha=cgm_alpha,
     )
 
 
@@ -382,8 +431,18 @@ def fasternet_t0(
     image_size: int = 32,
     cgm_placement: CGMPlacement = "none",
     cgm_reduction: int = 4,
+    cgm_mode: CGMMode = "sigmoid",
+    cgm_alpha: float = 0.5,
 ) -> FasterNet:
-    return build_fasternet("fasternet_t0", num_classes, image_size, cgm_placement, cgm_reduction)
+    return build_fasternet(
+        "fasternet_t0",
+        num_classes,
+        image_size,
+        cgm_placement,
+        cgm_reduction,
+        cgm_mode,
+        cgm_alpha,
+    )
 
 
 def fasternet_t1(
@@ -391,5 +450,15 @@ def fasternet_t1(
     image_size: int = 32,
     cgm_placement: CGMPlacement = "none",
     cgm_reduction: int = 4,
+    cgm_mode: CGMMode = "sigmoid",
+    cgm_alpha: float = 0.5,
 ) -> FasterNet:
-    return build_fasternet("fasternet_t1", num_classes, image_size, cgm_placement, cgm_reduction)
+    return build_fasternet(
+        "fasternet_t1",
+        num_classes,
+        image_size,
+        cgm_placement,
+        cgm_reduction,
+        cgm_mode,
+        cgm_alpha,
+    )

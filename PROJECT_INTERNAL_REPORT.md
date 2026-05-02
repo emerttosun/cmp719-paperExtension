@@ -137,3 +137,55 @@ Final proje icin:
 3. CGM-Early icin `r=8` veya `r=16` dene.
 4. Zaman kalirsa FasterNet-T1 baseline vs CGM-Early dene.
 5. Gate visualization'i histogram ve dogru/yanlis ornek analiziyle genislet.
+
+## 8. Tiny-ImageNet Sonucu ve Yeni CGM Gelistirme Fikri
+
+Tiny-ImageNet 224x224 uzerinde ilk baseline vs early sonucu alindi:
+
+| Dataset | Variant | Val Acc | Params | FLOPs | Latency |
+|---|---:|---:|---:|---:|---:|
+| Tiny-ImageNet 224 | CGM-none | 45.38 | 2,880,700 | 337.017M | 1.029 ms |
+| Tiny-ImageNet 224 | CGM-early | 45.04 | 2,881,202 | 337.080M | 1.167 ms |
+
+Bu sonuc CIFAR'daki kazancin Tiny-ImageNet'e direkt tasinmadigini gosterdi. CGM-Early burada baseline'dan `-0.34%` dusuk kaldi ve latency artti.
+
+Tiny-ImageNet CGM-Early gate mean degerleri:
+
+```text
+stages.0.blocks.0.spatial_mixing.channel_gate = 0.5699
+stages.2.blocks.0.spatial_mixing.channel_gate = 0.5370
+stages.2.blocks.1.spatial_mixing.channel_gate = 0.2673
+```
+
+Bu degerler semantik olarak hangi feature'in bastirildigini kanitlamaz. Ancak mevcut sigmoid CGM'nin bir early block'ta PConv-processed kanallari ortalamada guclu sekilde down-scale ettigini gosterir.
+
+Bu nedenle yeni denenecek fikir:
+
+> Residual / identity-preserving CGM
+
+Eski CGM:
+
+```text
+x = x * sigmoid(gate)
+```
+
+Yeni residual CGM:
+
+```text
+scale = 1 + alpha * (sigmoid(gate) - 0.5)
+x = x * scale
+```
+
+Varsayilan `alpha=0.5` icin scale araligi:
+
+```text
+0.75 - 1.25
+```
+
+Boylece CGM feature'i tamamen bastirmak yerine baseline etrafinda hafif azaltma/artirma yapar. Bu, ozellikle Tiny-ImageNet gibi daha zor datasetlerde feature akisini koruyabilir.
+
+Ilk denenecek CIFAR komutu:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-mode residual --measure-latency --save-gate-stats --output-dir runs_cifar_residual_e20
+```

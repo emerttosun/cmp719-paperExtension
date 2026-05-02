@@ -80,6 +80,27 @@ Supported CGM placements:
 - `early`: add CGM only in stages 1 and 2
 - `late`: add CGM only in stages 3 and 4
 
+Supported CGM modes:
+
+- `sigmoid`: original gate, `x = x * sigmoid(gate)`
+- `residual`: identity-preserving gate, `x = x * (1 + alpha * (sigmoid(gate) - 0.5))`
+
+Residual CGM example:
+
+```bash
+python train_classification.py \
+  --model fasternet_t0 \
+  --dataset cifar100 \
+  --dataset-source hf \
+  --epochs 20 \
+  --batch-size 128 \
+  --cgm-placement early \
+  --cgm-mode residual \
+  --measure-latency \
+  --save-gate-stats \
+  --output-dir runs_cifar_residual_e20
+```
+
 ## Suggested preliminary experiments
 
 ```bash
