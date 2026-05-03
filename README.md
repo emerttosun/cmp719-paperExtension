@@ -80,6 +80,7 @@ Supported CGM placements:
 - `early`: add CGM only in stages 1 and 2
 - `late`: add CGM only in stages 3 and 4
 - `s1`, `s2`, `s3`, `s4`: add CGM only in one stage for per-stage ablation
+- `s2s3`: add CGM in stages 2 and 3 as a middle-stage placement candidate
 
 Supported CGM modes:
 
@@ -139,6 +140,12 @@ python train_classification.py --dataset cifar100 --dataset-source hf --image-si
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s3 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s4 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+```
+
+Middle-stage candidate:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2s3 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 ```
 
 Outputs are written under `runs/` as CSV metrics and JSON summaries.
