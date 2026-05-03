@@ -16,7 +16,7 @@ import torch
 from torch import Tensor, nn
 
 
-CGMPlacement = Literal["none", "all", "early", "late"]
+CGMPlacement = Literal["none", "all", "early", "late", "s1", "s2", "s3", "s4"]
 CGMMode = Literal["sigmoid", "residual"]
 CGMType = Literal["se", "eca"]
 
@@ -291,6 +291,8 @@ def _use_cgm_for_stage(stage_idx: int, placement: CGMPlacement) -> bool:
         return stage_idx in {0, 1}
     if placement == "late":
         return stage_idx in {2, 3}
+    if placement in {"s1", "s2", "s3", "s4"}:
+        return stage_idx == int(placement[1]) - 1
     raise ValueError(f"Unknown CGM placement: {placement}")
 
 

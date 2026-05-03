@@ -54,7 +54,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--cgm-placement", choices=["none", "all", "early", "late"], default="none")
+    parser.add_argument(
+        "--cgm-placement",
+        choices=["none", "all", "early", "late", "s1", "s2", "s3", "s4"],
+        default="none",
+    )
     parser.add_argument("--cgm-reduction", type=int, default=4)
     parser.add_argument(
         "--cgm-mode",

@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     x = torch.randn(2, 3, args.image_size, args.image_size)
-    for placement in ["none", "all", "early", "late"]:
+    for placement in ["none", "all", "early", "late", "s1", "s2", "s3", "s4"]:
         model = build_fasternet(
             args.model,
             args.num_classes,

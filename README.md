@@ -79,6 +79,7 @@ Supported CGM placements:
 - `all`: add CGM after PConv in all four stages
 - `early`: add CGM only in stages 1 and 2
 - `late`: add CGM only in stages 3 and 4
+- `s1`, `s2`, `s3`, `s4`: add CGM only in one stage for per-stage ablation
 
 Supported CGM modes:
 
@@ -129,6 +130,15 @@ python train_classification.py --model fasternet_t0 --cgm-placement none --epoch
 python train_classification.py --model fasternet_t0 --cgm-placement all --epochs 20 --batch-size 128 --measure-latency --save-gate-stats
 python train_classification.py --model fasternet_t0 --cgm-placement early --epochs 20 --batch-size 128 --measure-latency
 python train_classification.py --model fasternet_t0 --cgm-placement late --epochs 20 --batch-size 128 --measure-latency
+```
+
+Per-stage ablation:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s1 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s3 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s4 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 ```
 
 Outputs are written under `runs/` as CSV metrics and JSON summaries.

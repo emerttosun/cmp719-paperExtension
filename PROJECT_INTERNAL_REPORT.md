@@ -203,3 +203,27 @@ Ilk denenecek ECA komutu:
 ```bash
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-type eca --measure-latency --save-gate-stats --output-dir runs_cifar_eca_e20
 ```
+
+## 9. Per-Stage Ablation Plani
+
+Early placement CIFAR-100'da iyi calisti, fakat bunun Stage 1'den mi Stage 2'den mi geldigi henuz bilinmiyor. Bu nedenle tek tek stage ablation eklendi:
+
+- `s1`: sadece Stage 1
+- `s2`: sadece Stage 2
+- `s3`: sadece Stage 3
+- `s4`: sadece Stage 4
+
+Amac:
+
+- Early sonucunu hangi stage'in surukledigini bulmak.
+- Eger `s1` veya `s2` tek basina yeterliyse, daha hafif ve daha net bir extension elde etmek.
+- `s3/s4` zayif kalirsa late placement'in neden etkili olmadigini daha iyi aciklamak.
+
+Calistirilacak komutlar:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s1 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s3 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s4 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
+```
