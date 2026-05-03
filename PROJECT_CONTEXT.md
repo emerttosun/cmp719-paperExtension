@@ -115,12 +115,28 @@ Additional completed tests after the first ablations:
 | Tiny-ImageNet 224, 20e | `none` v2 | 42 | 45.28 | 2,880,700 | 337.017M | 1.016 ms | Same-runtime baseline rerun |
 | Tiny-ImageNet 224, 20e | `early + centered, alpha=0.5` | 42 | 44.42 | 2,881,202 | 337.080M | 1.253 ms | Broad amplification hurt accuracy |
 | Tiny-ImageNet 224, 20e | `early + centered, alpha=0.25` | 42 | 44.47 | 2,881,202 | 337.080M | 1.229 ms | More controlled/stage-dependent but still below baseline |
+| CIFAR-100 32, T1 20e | `none` | 42 | 54.00 | 6,440,164 | 69.807M | 1.055 ms | Stronger T1 baseline |
+| CIFAR-100 32, T1 20e | `none` | 7 | 53.63 | 6,440,164 | 69.807M | 1.062 ms | Baseline seed repeat |
+| CIFAR-100 32, T1 20e | `early + sigmoid` | 42 | 52.79 | 6,441,416 | 69.816M | 1.245 ms | Hurts under short training |
+| CIFAR-100 32, T1 20e | `early + centered` | 42 | 52.98 | 6,441,416 | 69.816M | 1.301 ms | Still below baseline |
+| CIFAR-100 32, T1 40e | `none` | 42 | 56.71 | 6,440,164 | 69.807M | 1.056 ms | Longer T1 baseline |
+| CIFAR-100 32, T1 40e | `early + sigmoid` | 42 | 57.37 | 6,441,416 | 69.816M | 1.244 ms | Best T1 40e accuracy, +0.66 |
+| CIFAR-100 32, T1 40e | `s1 + sigmoid` | 42 | 57.22 | 6,440,312 | 69.811M | 1.120 ms | Best T1 stage trade-off |
+| CIFAR-100 32, T1 40e | `s2 + sigmoid` | 42 | 57.20 | 6,441,268 | 69.812M | 1.191 ms | Similar gain to s1, slower |
+| CIFAR-100 32, T1 40e | `s3 + sigmoid` | 42 | 56.95 | 6,457,188 | 69.832M | 1.517 ms | Small gain, high latency |
+| CIFAR-100 32, T1 40e | `s4 + sigmoid` | 42 | 56.84 | 6,456,868 | 69.825M | 1.181 ms | Small gain |
 
 Centered CGM Tiny interpretation:
 
 - `alpha=0.5` allows scale `0.5-1.5`; Tiny learned mostly amplification in early stages, with Stage 2 block 1 using a wide sample-level scale range around `0.537-1.475`, but validation dropped to `44.42`.
 - `alpha=0.25` narrows scale to `0.75-1.25`; Stage 1 lightly amplified while Stage 2 became suppressive (`scale mean 0.971` and `0.930`), yet validation only reached `44.47`.
 - Current Tiny conclusion: CGM does not transfer to Tiny-ImageNet under the current recipe. The CIFAR gain is meaningful but dataset/regime dependent, and Tiny highlights latency overhead despite tiny FLOP/parameter overhead.
+
+T1 interpretation:
+
+- T1 20e initially made CGM look harmful (`early + sigmoid` 52.79 vs baseline 54.00), but 40e reversed the conclusion (`early + sigmoid` 57.37 vs baseline 56.71).
+- T1 stage ablation at 40e supports early-stage gating: `s1` and `s2` each provide about +0.5 val acc, while `s3/s4` give smaller gains with worse latency/parameter cost.
+- `s1 + sigmoid` is the best T1 trade-off; `early + sigmoid` is the best T1 accuracy.
 
 Current consolidated conclusion:
 

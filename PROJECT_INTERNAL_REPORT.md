@@ -458,3 +458,50 @@ Yeni Tiny yorumu:
 Efficiency yorumu:
 
 > Parametre ve FLOPs overhead'i cok kucuk (`+502` parametre, yaklasik `+0.063M` FLOPs), ancak latency `1.016 ms` baseline'dan `1.229-1.253 ms` araligina cikti. Bu, FasterNet paper'inin "FLOPs tek basina yeterli degildir" argumanini destekleyen bir negatif sonuc olarak raporlanabilir.
+
+## 16. FasterNet-T1 CIFAR-100 Sonuclari
+
+T1 deneyi, CGM etkisinin sadece kucuk T0 modeline mi ait oldugunu yoksa daha genis FasterNet varyantina da tasinip tasinmadigini anlamak icin yapildi.
+
+### 16.1 T1 20 Epoch Sonuclari
+
+| Model | Variant | Seed | Epoch | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| T1 | `none` | 42 | 20 | 65.91 | 54.00 | 6,440,164 | 69.807M | 1.055 ms | Baseline |
+| T1 | `none` | 7 | 20 | 66.49 | 53.63 | 6,440,164 | 69.807M | 1.062 ms | Baseline seed tekrar |
+| T1 | `early + sigmoid` | 42 | 20 | 65.26 | 52.79 | 6,441,416 | 69.816M | 1.245 ms | Kisa egitimde zararli |
+| T1 | `early + centered` | 42 | 20 | 65.76 | 52.98 | 6,441,416 | 69.816M | 1.301 ms | Sigmoid'den az iyi ama baseline altinda |
+| T1 | `s1 + centered` | 42 | 20 | 66.53 | 53.41 | 6,440,312 | 69.811M | 1.149 ms | Early'den iyi, baseline altinda |
+| T1 | `s2 + centered` | 42 | 20 | 66.85 | 54.15 | 6,441,268 | 69.812M | 1.224 ms | Tek seed'de baseline'a yakin/az ustu |
+
+20 epoch yorumu:
+
+> T1'de 20 epoch sonuclari CGM icin yanıltici olabilir. `early + sigmoid` ve `early + centered` baseline'dan belirgin dusuk kaldi. `s2 + centered` tek seed'de baseline'i cok az gecti, fakat fark baseline seed varyansindan kucuk oldugu icin guclu claim yapmaya yetmez.
+
+### 16.2 T1 40 Epoch Sigmoid Stage Ablation
+
+T1 daha buyuk bir model oldugu icin 40 epoch tekrar yapildi. 40 epoch'ta sigmoid CGM baseline'i gecti ve stage-wise trend daha anlamli hale geldi.
+
+| Model | Variant | Seed | Epoch | Train Acc | Val Acc | Gain vs Baseline | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| T1 | `none` | 42 | 40 | 85.66 | 56.71 | - | 6,440,164 | 69.807M | 1.056 ms | 40e baseline |
+| T1 | `early + sigmoid` | 42 | 40 | 84.90 | 57.37 | +0.66 | 6,441,416 | 69.816M | 1.244 ms | En iyi accuracy |
+| T1 | `s1 + sigmoid` | 42 | 40 | 85.94 | 57.22 | +0.51 | 6,440,312 | 69.811M | 1.120 ms | En iyi latency/accuracy trade-off |
+| T1 | `s2 + sigmoid` | 42 | 40 | 85.95 | 57.20 | +0.49 | 6,441,268 | 69.812M | 1.191 ms | S1'e yakin gain, daha yavas |
+| T1 | `s3 + sigmoid` | 42 | 40 | 85.49 | 56.95 | +0.24 | 6,457,188 | 69.832M | 1.517 ms | Kucuk gain, pahali latency |
+| T1 | `s4 + sigmoid` | 42 | 40 | 85.18 | 56.84 | +0.13 | 6,456,868 | 69.825M | 1.181 ms | Kucuk gain |
+
+40 epoch yorumu:
+
+> T1 icin CGM etkisi egitim suresine duyarlidir. 20 epoch'ta early CGM zararli gorunurken, 40 epoch'ta `early + sigmoid` baseline'a gore `+0.66` val acc kazanci sagladi. Train accuracy baseline'dan biraz dusuk (`84.90` vs `85.66`) ama validation daha yuksek oldugu icin sigmoid CGM'nin T1'de regularization/channel filtering etkisi olabilir.
+
+Stage-wise yorum:
+
+- `s1` ve `s2` tek basina benzer kazanc sagladi (`+0.51`, `+0.49`).
+- `early = s1+s2`, en yuksek accuracy'yi verdi (`57.37`), ancak latency maliyeti daha yuksek.
+- `s1`, en iyi accuracy/latency trade-off olarak gorunuyor: baseline'a gore `+0.51` val acc, sadece `+0.064 ms` latency.
+- `s3` ve `s4` daha genis/gec stage'ler oldugu icin daha fazla parametre/latency getirdi; accuracy kazanci daha kucuk kaldi.
+
+Yeni T1 sonucu:
+
+> T1 deneyleri, CGM'nin sadece T0'a ozgu olmadigini fakat yeterli egitim ve dogru placement gerektirdigini gosteriyor. 40 epoch'ta erken stage sigmoid CGM faydali hale geldi; buna karsin FLOPs artisi cok kucuk kalirken latency artisi belirgin oldu. Bu sonuc hem proposal'in early-stage fikrini destekler, hem de FasterNet'in "FLOPs tek basina yeterli degildir" argumanini tekrar dogrular.
