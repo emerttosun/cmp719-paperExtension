@@ -54,6 +54,7 @@ class ChannelGateModule(nn.Module):
         gate_type: CGMType = "se",
         eca_kernel_size: int = 3,
         pooling: CGMPooling = "gap",
+        init_bias: float = 0.0,
     ) -> None:
         super().__init__()
         if mode not in {"sigmoid", "residual"}:
@@ -68,11 +69,13 @@ class ChannelGateModule(nn.Module):
         self.alpha = alpha
         self.gate_type = gate_type
         self.pooling = pooling
+        self.init_bias = float(init_bias)
         hidden = max(channels // reduction, 1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         if gate_type == "eca":
-            self.gate = nn.Conv1d(1, 1, kernel_size=eca_kernel_size, padding=eca_kernel_size // 2, bias=False)
+            # bias=True so identity_init can shift logits to a positive value.
+            self.gate = nn.Conv1d(1, 1, kernel_size=eca_kernel_size, padding=eca_kernel_size // 2, bias=True)
         else:
             self.gate = nn.Sequential(
                 nn.Conv2d(channels, hidden, kernel_size=1),
@@ -81,6 +84,34 @@ class ChannelGateModule(nn.Module):
             )
         self.latest_gate: Optional[Tensor] = None
         self.latest_scale: Optional[Tensor] = None
+
+    @torch.no_grad()
+    def identity_init(self) -> None:
+        """Initialize the final gate layer so sigmoid output starts near 1.0.
+
+        With init_bias = b > 0, the gate output layer is reset to weight=0 and
+        bias=b. The pooled descriptor has no influence at step 0, so sigmoid(b)
+        is the gate value at the first forward pass. With b=4 the gate starts
+        at ~0.982, making CGM behave as identity at training start. The model
+        then learns to deviate downward only when the gradient signal supports
+        it. Has no effect when init_bias <= 0 (preserves the original random
+        init for backward compatibility).
+
+        Must be called AFTER the global trunc_normal init (FasterNet does this
+        in its __init__ after self.apply(self._init_weights)), otherwise the
+        global init will overwrite it.
+        """
+        if self.init_bias <= 0.0:
+            return
+        if self.gate_type == "eca":
+            nn.init.zeros_(self.gate.weight)
+            if self.gate.bias is not None:
+                nn.init.constant_(self.gate.bias, self.init_bias)
+        else:
+            last_conv = self.gate[-1]
+            nn.init.zeros_(last_conv.weight)
+            if last_conv.bias is not None:
+                nn.init.constant_(last_conv.bias, self.init_bias)
 
     def _gate_logits(self, pooled: Tensor) -> Tensor:
         if self.gate_type == "eca":
@@ -113,6 +144,7 @@ class PartialConv3(nn.Module):
         cgm_type: CGMType = "se",
         eca_kernel_size: int = 3,
         cgm_pooling: CGMPooling = "gap",
+        cgm_init_bias: float = 0.0,
     ) -> None:
         super().__init__()
         self.dim_conv3 = dim // n_div
@@ -130,6 +162,7 @@ class PartialConv3(nn.Module):
                 gate_type=cgm_type,
                 eca_kernel_size=eca_kernel_size,
                 pooling=cgm_pooling,
+                init_bias=cgm_init_bias,
             )
             if use_cgm
             else nn.Identity()
@@ -172,6 +205,7 @@ class MLPBlock(nn.Module):
         cgm_type: CGMType,
         eca_kernel_size: int,
         cgm_pooling: CGMPooling,
+        cgm_init_bias: float,
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
@@ -186,6 +220,7 @@ class MLPBlock(nn.Module):
             cgm_type=cgm_type,
             eca_kernel_size=eca_kernel_size,
             cgm_pooling=cgm_pooling,
+            cgm_init_bias=cgm_init_bias,
         )
         self.mlp = nn.Sequential(
             nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=False),
@@ -228,6 +263,7 @@ class BasicStage(nn.Module):
         cgm_type: CGMType,
         eca_kernel_size: int,
         cgm_pooling: CGMPooling,
+        cgm_init_bias: float,
     ) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
@@ -248,6 +284,7 @@ class BasicStage(nn.Module):
                     cgm_type=cgm_type,
                     eca_kernel_size=eca_kernel_size,
                     cgm_pooling=cgm_pooling,
+                    cgm_init_bias=cgm_init_bias,
                 )
                 for drop_path_i in drop_path
             ]
@@ -339,6 +376,7 @@ class FasterNet(nn.Module):
         cgm_type: CGMType = "se",
         eca_kernel_size: int = 3,
         cgm_pooling: CGMPooling = "gap",
+        cgm_init_bias: float = 0.0,
     ) -> None:
         super().__init__()
         if norm_layer != "BN":
@@ -354,6 +392,7 @@ class FasterNet(nn.Module):
         self.cgm_type = cgm_type
         self.eca_kernel_size = eca_kernel_size
         self.cgm_pooling = cgm_pooling
+        self.cgm_init_bias = float(cgm_init_bias)
         self.num_features = int(embed_dim * 2 ** (len(depths) - 1))
 
         self.patch_embed = PatchEmbed(
@@ -388,6 +427,7 @@ class FasterNet(nn.Module):
                     cgm_type=cgm_type,
                     eca_kernel_size=eca_kernel_size,
                     cgm_pooling=cgm_pooling,
+                    cgm_init_bias=cgm_init_bias,
                 )
             )
             if stage_idx < len(depths) - 1:
@@ -407,6 +447,11 @@ class FasterNet(nn.Module):
         )
         self.head = nn.Linear(feature_dim, num_classes)
         self.apply(self._init_weights)
+        # CGM identity init must run AFTER the global trunc_normal init above,
+        # otherwise self.apply(self._init_weights) would overwrite it.
+        for module in self.modules():
+            if isinstance(module, ChannelGateModule):
+                module.identity_init()
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
@@ -469,6 +514,7 @@ def build_fasternet(
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
+    cgm_init_bias: float = 0.0,
 ) -> FasterNet:
     cfg = MODEL_CONFIGS[model_name]
     patch_size = 2 if image_size <= 64 else 4
@@ -486,6 +532,7 @@ def build_fasternet(
         cgm_type=cgm_type,
         eca_kernel_size=eca_kernel_size,
         cgm_pooling=cgm_pooling,
+        cgm_init_bias=cgm_init_bias,
     )
 
 
@@ -499,6 +546,7 @@ def fasternet_t0(
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
+    cgm_init_bias: float = 0.0,
 ) -> FasterNet:
     return build_fasternet(
         "fasternet_t0",
@@ -511,6 +559,7 @@ def fasternet_t0(
         cgm_type,
         eca_kernel_size,
         cgm_pooling,
+        cgm_init_bias,
     )
 
 
@@ -524,6 +573,7 @@ def fasternet_t1(
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
+    cgm_init_bias: float = 0.0,
 ) -> FasterNet:
     return build_fasternet(
         "fasternet_t1",
@@ -536,4 +586,5 @@ def fasternet_t1(
         cgm_type,
         eca_kernel_size,
         cgm_pooling,
+        cgm_init_bias,
     )

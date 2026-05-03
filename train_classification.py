@@ -90,6 +90,18 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Residual CGM strength. With alpha=0.5, scale is in [0.75, 1.25].",
     )
+    parser.add_argument(
+        "--cgm-init-bias",
+        type=float,
+        default=0.0,
+        help=(
+            "Identity initialization bias for the gate output layer. With b>0, "
+            "the gate's last layer is reset to weight=0, bias=b after global "
+            "init, so sigmoid(b) is the initial gate value (b=4 -> ~0.982, "
+            "near identity). Default 0.0 disables the override and preserves "
+            "the original random init for backward compatibility."
+        ),
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--limit-train-batches", type=int, default=None)
     parser.add_argument("--limit-val-batches", type=int, default=None)
@@ -371,6 +383,7 @@ def main() -> None:
         cgm_type=args.cgm_type,
         eca_kernel_size=args.eca_kernel_size,
         cgm_pooling=args.cgm_pooling,
+        cgm_init_bias=args.cgm_init_bias,
     ).to(device)
 
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -420,6 +433,7 @@ def main() -> None:
         "cgm_alpha": args.cgm_alpha,
         "cgm_type": args.cgm_type,
         "cgm_pooling": args.cgm_pooling,
+        "cgm_init_bias": args.cgm_init_bias,
         "eca_kernel_size": args.eca_kernel_size,
         "params": params,
         "flops": flops,
