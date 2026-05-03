@@ -538,6 +538,28 @@ class FasterNet(nn.Module):
                 stats[name] = self._tensor_stats(scale, bins=bins, hist_min=hist_min, hist_max=hist_max)
         return stats
 
+    @staticmethod
+    @torch.no_grad()
+    def _channel_means(tensor: Tensor) -> list[float]:
+        # Average over batch and spatial dimensions, preserving channel order.
+        return [float(value) for value in tensor.detach().float().mean(dim=(0, 2, 3)).cpu().tolist()]
+
+    @torch.no_grad()
+    def collect_gate_vectors(self) -> dict[str, list[float]]:
+        vectors: dict[str, list[float]] = {}
+        for name, module in self.named_modules():
+            if isinstance(module, ChannelGateModule) and module.latest_gate is not None:
+                vectors[name] = self._channel_means(module.latest_gate)
+        return vectors
+
+    @torch.no_grad()
+    def collect_scale_vectors(self) -> dict[str, list[float]]:
+        vectors: dict[str, list[float]] = {}
+        for name, module in self.named_modules():
+            if isinstance(module, ChannelGateModule) and module.latest_scale is not None:
+                vectors[name] = self._channel_means(module.latest_scale)
+        return vectors
+
 
 @dataclass(frozen=True)
 class FasterNetConfig:

@@ -430,4 +430,7 @@ Plot komutlari:
 python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat gate
 python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale
 python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --hist
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --print-vectors
 ```
+
+Onemli not: Onceki implementation'da `--measure-latency` gate stats'tan once calistigi icin, kaydedilen `latest_gate` degerleri validation image'lari yerine latency olcumundeki random tensor tarafindan ezilebiliyordu. Bu nedenle gate analysis validation loader uzerinden yenilenecek sekilde guncellendi. Yeni summary `gate_stats_num_images`, `gate_vectors` ve `scale_vectors` alanlarini da kaydeder.

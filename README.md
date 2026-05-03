@@ -203,6 +203,7 @@ To inspect the effective scale values and saved histograms:
 ```bash
 python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale
 python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --hist
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --print-vectors
 ```
 
 ## Tiny-ImageNet resized experiment

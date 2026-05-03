@@ -124,6 +124,15 @@ def parse_args() -> argparse.Namespace:
         help="Number of bins used for saved gate/scale histograms when --save-gate-stats is set.",
     )
     parser.add_argument(
+        "--gate-stats-batches",
+        type=int,
+        default=1,
+        help=(
+            "Number of validation batches used to refresh saved gate stats after training. "
+            "Use a larger value for more stable histograms; default 1 keeps the extra cost small."
+        ),
+    )
+    parser.add_argument(
         "--disable-cifar-mirror",
         action="store_true",
         help="Do not try mirror downloads if the default torchvision CIFAR-100 URL fails.",
@@ -138,6 +147,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--cgm-init-bias > 0 is only supported with --cgm-mode sigmoid.")
     if args.gate_hist_bins < 1:
         parser.error("--gate-hist-bins must be at least 1.")
+    if args.gate_stats_batches < 1:
+        parser.error("--gate-stats-batches must be at least 1.")
     return args
 
 
@@ -385,6 +396,42 @@ def run_epoch(
     return total_loss / max(total_seen, 1), 100.0 * total_correct / max(total_seen, 1)
 
 
+@torch.no_grad()
+def collect_gate_summary_on_loader(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    bins: int,
+    limit_batches: int,
+) -> dict[str, object]:
+    was_training = model.training
+    model.eval()
+    total_seen = 0
+    for batch_idx, (images, _) in enumerate(tqdm(loader, leave=False, desc="gate-stats")):
+        if batch_idx >= limit_batches:
+            break
+        images = images.to(device, non_blocking=True)
+        model(images)
+        total_seen += images.shape[0]
+
+    summary: dict[str, object] = {"gate_stats_num_images": total_seen}
+    if hasattr(model, "collect_gate_means"):
+        summary["gate_means"] = model.collect_gate_means()
+    if hasattr(model, "collect_scale_means"):
+        summary["scale_means"] = model.collect_scale_means()
+    if hasattr(model, "collect_gate_stats"):
+        summary["gate_stats"] = model.collect_gate_stats(bins=bins)
+    if hasattr(model, "collect_scale_stats"):
+        summary["scale_stats"] = model.collect_scale_stats(bins=bins)
+    if hasattr(model, "collect_gate_vectors"):
+        summary["gate_vectors"] = model.collect_gate_vectors()
+    if hasattr(model, "collect_scale_vectors"):
+        summary["scale_vectors"] = model.collect_scale_vectors()
+
+    model.train(was_training)
+    return summary
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -459,17 +506,19 @@ def main() -> None:
         "params": params,
         "flops": flops,
     }
+    if args.save_gate_stats:
+        summary.update(
+            collect_gate_summary_on_loader(
+                model,
+                val_loader,
+                device,
+                bins=args.gate_hist_bins,
+                limit_batches=args.gate_stats_batches,
+            )
+        )
     if args.measure_latency:
         summary["latency_ms_b1"] = measure_latency_ms(model, args.image_size, device, batch_size=1)
         print(f"Latency: {summary['latency_ms_b1']:.3f} ms/image")
-    if args.save_gate_stats and hasattr(model, "collect_gate_means"):
-        summary["gate_means"] = model.collect_gate_means()
-    if args.save_gate_stats and hasattr(model, "collect_scale_means"):
-        summary["scale_means"] = model.collect_scale_means()
-    if args.save_gate_stats and hasattr(model, "collect_gate_stats"):
-        summary["gate_stats"] = model.collect_gate_stats(bins=args.gate_hist_bins)
-    if args.save_gate_stats and hasattr(model, "collect_scale_stats"):
-        summary["scale_stats"] = model.collect_scale_stats(bins=args.gate_hist_bins)
 
     summary_path = output_dir / f"{args.model}_{args.cgm_placement}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

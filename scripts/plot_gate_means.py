@@ -22,6 +22,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Plot saved histograms instead of layer-wise mean bars. Requires new *_stats fields.",
     )
+    parser.add_argument(
+        "--print-vectors",
+        action="store_true",
+        help="Print per-channel gate/scale vectors and suppress/amplify channel indices.",
+    )
+    parser.add_argument("--suppress-threshold", type=float, default=0.99)
+    parser.add_argument("--amplify-threshold", type=float, default=1.01)
     return parser.parse_args()
 
 
@@ -33,8 +40,30 @@ def main() -> None:
     means_key = "gate_means" if args.stat == "gate" else "scale_means"
     stats = summary.get(stats_key, {})
     means = summary.get(means_key, {})
+    vector_key = "gate_vectors" if args.stat == "gate" else "scale_vectors"
+    vectors = summary.get(vector_key, {})
     if not stats and not means:
         raise SystemExit(f"No {stats_key} or {means_key} found. Re-run training with --save-gate-stats.")
+
+    if args.print_vectors:
+        if not vectors:
+            raise SystemExit(f"No {vector_key} found. Re-run training after the vector update.")
+        for name, values in vectors.items():
+            print(name)
+            print("values:", ", ".join(f"{value:.4f}" for value in values))
+            if args.stat == "scale":
+                suppressed = [idx for idx, value in enumerate(values) if value < args.suppress_threshold]
+                amplified = [idx for idx, value in enumerate(values) if value > args.amplify_threshold]
+                neutral = [
+                    idx
+                    for idx, value in enumerate(values)
+                    if args.suppress_threshold <= value <= args.amplify_threshold
+                ]
+                print(f"suppressed (<{args.suppress_threshold}): {suppressed}")
+                print(f"amplified (>{args.amplify_threshold}): {amplified}")
+                print(f"neutral: {neutral}")
+            print()
+        return
 
     if args.hist:
         if not stats:
