@@ -27,6 +27,7 @@ Arastirma sorusu:
   - `late`: stage 3 + stage 4
   - `s1`, `s2`, `s3`, `s4`: tek tek stage ablation
   - `s2s3`: stage 2 + stage 3 orta-stage aday kombinasyonu
+  - `s2s4`: stage 2 + stage 4 komsu olmayan stage kombinasyonu
 - CGM type secenekleri:
   - `se`: GAP -> 1x1 Conv -> ReLU -> 1x1 Conv -> sigmoid
   - `eca`: GAP -> 1D channel conv -> sigmoid
@@ -107,6 +108,7 @@ Final icin opsiyonel gelistirmeler:
 - `s3` ikinci seed iyi gelirse `s3` ana accuracy adayi, `early/s2` latency-accuracy trade-off adayi olarak raporlanabilir.
 - `s2+s3` gibi yeni bir combined placement eklenebilir.
 - `s2s3` placement koda eklendi; seed 42/7 ile denenmesi gerekiyor.
+- `s2s4` placement koda eklendi; komsu olmayan stage kombinasyonu kontrolu olarak denenebilir.
 - 3 seed ortalama ve standart sapma raporlanabilir.
 - 30/50 epoch daha uzun CIFAR-100 deneyleri yapilabilir.
 - FasterNet-T1 baseline vs en iyi CGM varyanti denenebilir.

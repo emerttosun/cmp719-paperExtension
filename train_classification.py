@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--cgm-placement",
-        choices=["none", "all", "early", "late", "s1", "s2", "s3", "s4", "s2s3"],
+        choices=["none", "all", "early", "late", "s1", "s2", "s3", "s4", "s2s3", "s2s4"],
         default="none",
     )
     parser.add_argument("--cgm-reduction", type=int, default=4)
