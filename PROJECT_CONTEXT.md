@@ -96,6 +96,27 @@ Tiny-ImageNet 224, FasterNet-T0, 20 epoch:
 
 Tiny sonucu CIFAR kazancinin direkt transfer olmadigini gosteriyor. Bu sonuc finalde "dataset/resolution sensitivity" olarak yorumlanabilir; ana preliminary claim icin CIFAR stage ablation daha guclu.
 
+Additional completed tests after the first ablations:
+
+| Setting | Variant | Seed | Val Acc | Params | FLOPs | Latency | Main note |
+|---|---|---:|---:|---:|---:|---:|---|
+| CIFAR-100 32, 20e | `early + gap_gmp` | 42 | 50.90 | 2,751,662 | 27.632M | 1.317 ms | Dual pooling hurt early CGM |
+| CIFAR-100 32, 20e | `s2s4 + gap_gmp` | 42 | 51.39 | 2,758,210 | 27.643M | 1.419 ms | Good single-seed result |
+| CIFAR-100 32, 20e | `s2s4 + gap_gmp` | 7 | 50.59 | 2,758,210 | 27.643M | 1.429 ms | Gain did not stabilize |
+| CIFAR-100 32, 20e | `early + init b=4` | 42 | 51.25 | 2,751,662 | 27.632M | 1.212 ms | Identity init works but remains near 0.98 |
+| CIFAR-100 32, 20e | `early + init b=4` | 7 | 51.06 | 2,751,662 | 27.632M | 1.202 ms | Mean below vanilla early |
+| CIFAR-100 32, 20e | `early + init b=2` | 42 | 51.20 | 2,751,662 | 27.632M | 1.201 ms | Gate remains near 0.87 |
+| CIFAR-100 32, 40e | `none` | 42 | 55.51 | 2,751,160 | 27.626M | 1.035 ms | Longer training greatly improves baseline |
+| CIFAR-100 32, 40e | `early + gap` | 42 | 55.68 | 2,751,662 | 27.632M | 1.193 ms | Best 40e result, small gain |
+| CIFAR-100 32, 40e | `early + init b=2` | 42 | 55.64 | 2,751,662 | 27.632M | 1.200 ms | Does not beat vanilla early |
+| CIFAR-100 32, 40e | `s2s4 + gap` | 42 | 55.37 | 2,758,210 | 27.636M | 1.261 ms | Worse than baseline at 40e |
+| CIFAR-100 64, 20e | `none` | 42 | 56.69 | 2,751,160 | 108.892M | 1.046 ms | Resize boosts overall accuracy |
+| CIFAR-100 64, 20e | `early + gap` | 42 | 56.92 | 2,751,662 | 108.913M | 1.223 ms | Still positive, but modest +0.23 |
+
+Current consolidated conclusion:
+
+> The proposal is partially supported but not strongly validated. Early-stage SE-CGM with GAP is the most reliable variant: it improves CIFAR-100 at 20 epochs and remains slightly better at 40 epochs. However, the gain is modest, shrinks with longer training, does not transfer cleanly to Tiny-ImageNet, and most stronger-looking variants are seed-sensitive or slower.
+
 ## Remaining Work
 
 Preliminary progress report icin:
@@ -108,22 +129,22 @@ Preliminary progress report icin:
 - Latency/FLOPs farki FasterNet paper'inin ana argumaniyla baglanmali.
 - Tiny-ImageNet sonucu varsa "CIFAR kazanci transferde garanti degil" diye durustce yorumlanmali.
 
-Hemen siradaki deney:
+Hemen siradaki deney / rapor onceligi:
 
-```bash
-python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_early_gap_gmp_e20
-python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2s4 --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_s2s4_gap_gmp_e20
-```
+- Ana yontemi `early + gap` olarak raporla.
+- 20 epoch ve 40 epoch tablolarini birlikte ver.
+- `gap_gmp`, `identity init`, `s2s4`, `s3`, `64x64`, Tiny-ImageNet sonuclarini ablation/sensitivity olarak yaz.
+- Sonucu "small but reproducible on CIFAR, limited generality" diye konumlandir.
 
 Final icin opsiyonel gelistirmeler:
 
-- `early + gap_gmp` ve `s2s4 + gap_gmp` seed 42 ile denenmeli.
-- Bunlardan biri eski `early gap` ortalamasi olan 51.19'u gecerse seed 7 ile dogrulanmali.
-- `s3` ana yontem degil; seed-sensitive ablation olarak raporlanabilir.
-- `s2s3` ana yontem degil; latency maliyeti erken/`s2s4` adaylarindan yuksek.
+- Daha guclu training recipe: warmup, TrivialAugment, MixUp, EMA. Baseline ve CGM ayni recipe ile egitilmeli.
+- Gate histogram/std kaydi: mean tek basina yeterli degil; kanal bazli ayrisma gorulmeli.
+- Centered gate tasarimi: `scale = 2 * sigmoid(logits)` ile azaltma ve artirma birlikte denenebilir.
+- Bypass gate: PConv islenen kanallar ve bypass kanallari ayri gate'lemek FasterNet'e daha ozgu bir katkidir.
+- T1 deneyi: baseline vs `early + gap`; proposal'in farkli model boyutuna genellenip genellenmedigini test eder.
+- CIFAR-100 64x64 icin seed 7 tekrar veya 40 epoch, sadece zaman kalirsa.
 - 3 seed ortalama ve standart sapma raporlanabilir.
-- 30/50 epoch daha uzun CIFAR-100 deneyleri yapilabilir.
-- FasterNet-T1 baseline vs en iyi CGM varyanti denenebilir.
 - Gate histogram, dogru/yanlis ornek gate analizi ve layer-wise gate visualizations eklenebilir.
 
 ## Important Constraints

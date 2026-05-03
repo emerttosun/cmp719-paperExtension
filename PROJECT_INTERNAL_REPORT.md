@@ -301,3 +301,96 @@ Karar kurali:
 - Eger `early + gap_gmp` eski `early gap` ortalamasi olan 51.19'u gecerse ana yontem `Early Dual-Pooling CGM` olabilir.
 - Eger `s2s4 + gap_gmp` en iyi sonucu verirse ana aday `Selective S2+S4 Dual-Pooling CGM` olabilir.
 - Ikisi de iyilesmezse eski `early gap` ana yontem kalir; GAP+GMP ablation olarak raporlanir.
+
+## 12. Sonradan Tamamlanan Testlerin Ozeti
+
+Bu bolum, rapor yazarken "hangi deneyler yapildi?" sorusuna hizli cevap vermek icin eklendi.
+
+### 12.1 GAP+GMP Sonuclari
+
+| Variant | Seed | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---:|---|
+| `early + gap_gmp` | 42 | 50.90 | 2,751,662 | 27.632M | 1.317 ms | Early icin iyilesme saglamadi |
+| `s2s4 + gap_gmp` | 42 | 51.39 | 2,758,210 | 27.643M | 1.419 ms | Tek seed'de yuksek |
+| `s2s4 + gap_gmp` | 7 | 50.59 | 2,758,210 | 27.643M | 1.429 ms | Seed 7'de dusuk, stabil degil |
+
+Yorum:
+
+> GAP+GMP pooling, erken stage'de gate'i daha agresif hale getirdi fakat accuracy'yi artirmadi. `s2s4` icin tek seed'de iyi gorundu ancak seed 7'de stabil kalmadi.
+
+### 12.2 Identity Init Sonuclari
+
+Identity init fikri, sigmoid gate'in baslangicta `0.5` ile PConv kanallarini yarilamasini engellemek icin denendi.
+
+| Variant | Seed | Val Acc | Gate Means | Latency | Yorum |
+|---|---:|---:|---|---:|---|
+| `early + init b=4` | 42 | 51.25 | ~0.977-0.979 | 1.212 ms | Baseline ve vanilla seed42'den iyi |
+| `early + init b=4` | 7 | 51.06 | ~0.977-0.980 | 1.202 ms | Vanilla early seed7'den dusuk |
+| `early + init b=2` | 42 | 51.20 | ~0.867-0.878 | 1.201 ms | Gate daha az pasif ama vanilla'yi gecmedi |
+
+Iki seed ortalamasi:
+
+| Variant | Mean Val Acc | Yorum |
+|---|---:|---|
+| `early + gap` | 51.19 | En stabil 20e ana yontem |
+| `early + init b=4` | 51.16 | Cok yakin ama daha iyi degil |
+
+Yorum:
+
+> Identity-biased initialization teorik olarak anlamli ve baseline'dan iyi, fakat bu deneylerde vanilla `early + gap` yontemini net gecmedi. Gate mean'lerin init degerine yakin kalmasi, gate'in mevcut recipe/epoch sayisinda sinirli hareket ettigini gosteriyor.
+
+### 12.3 40 Epoch Sonuclari
+
+40 epoch ile baseline guclendi ve CGM farki kuculdu.
+
+| Variant | Seed | Val Acc | Train Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `none` | 42 | 55.51 | 77.29 | 2,751,160 | 27.626M | 1.035 ms | Guclu baseline |
+| `early + gap` | 42 | 55.68 | 77.88 | 2,751,662 | 27.632M | 1.193 ms | En iyi 40e sonuc |
+| `early + init b=2` | 42 | 55.64 | 78.15 | 2,751,662 | 27.632M | 1.200 ms | Vanilla early'den az dusuk |
+| `s2s4 + gap` | 42 | 55.37 | 77.41 | 2,758,210 | 27.636M | 1.261 ms | Baseline'dan dusuk |
+
+Yorum:
+
+> CGM etkisi 40 epoch'ta da kaybolmadi, fakat fark `+0.17` ile kucuk kaldi. Bu, CGM'nin daha cok kisa egitimde yardimci oldugunu veya baseline'in uzun egitimde farki kapattigini dusunduruyor.
+
+### 12.4 CIFAR-100 64x64 Resize Sonuclari
+
+CIFAR-100 native 32x32 oldugu icin 64x64 deneyleri ana protokol degil, resolution sensitivity analizidir.
+
+| Variant | Image Size | Epoch | Seed | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `none` | 64 | 20 | 42 | 56.69 | 2,751,160 | 108.892M | 1.046 ms | Resize accuracy'yi ciddi artirdi |
+| `early + gap` | 64 | 20 | 42 | 56.92 | 2,751,662 | 108.913M | 1.223 ms | Baseline'a gore +0.23 |
+
+Yorum:
+
+> 64x64 resize, baseline ve CGM performansini ciddi artirdi. Ancak CGM'nin relatif kazanci yine kucuk kaldi. Bu nedenle dusuk cozunurluk tek basina CGM etkisinin sinirli kalmasini aciklamiyor.
+
+## 13. Genel Sonuc ve Sonraki Olasiliklar
+
+Genel sonuc:
+
+> Proposal kismen desteklendi. `early + gap` CGM, CIFAR-100'da kucuk ve tekrar eden bir iyilesme sagliyor. Ancak etki guclu degil; uzun egitimde fark azaliyor, Tiny-ImageNet'e transfer etmiyor ve daha karmasik varyantlar stabil kazanc vermiyor.
+
+Yapilmis ana test kategorileri:
+
+- Baseline vs `all`/`early`/`late`, 20 epoch, iki seed.
+- Per-stage ablation: `s1`, `s2`, `s3`, `s4`.
+- Combined placement: `s2s3`, `s2s4`.
+- CGM mode/type: residual, ECA.
+- Pooling: GAP vs GAP+GMP.
+- Initialization: sigmoid identity init `b=4`, `b=2`.
+- Daha uzun egitim: 40 epoch baseline, early, early+init, s2s4.
+- Dataset/resolution: Tiny-ImageNet 224, CIFAR-100 resized 64.
+- Efficiency: params, FLOPs, latency.
+- Gate analysis: layer-wise gate means.
+
+Bundan sonra denenebilecekler:
+
+- Stronger recipe: warmup, TrivialAugment, MixUp, EMA. Adil karsilastirma icin baseline ve CGM ayni recipe ile egitilmeli.
+- Centered sigmoid gate: `scale = 2 * sigmoid(logits)`. Bu, gate'in hem azaltma hem artirma yapmasini saglar.
+- Bypass channel gate: PConv islenen kanallar ve bypass kanallarini ayri gate'lemek, FasterNet'e daha ozgu bir extension olur.
+- Gate std/histogram: mean yerine kanal bazli dagilim kaydedilmeli; gate gercekten ayrisiyor mu daha net gorulur.
+- T1 modeli: `fasternet_t1` baseline vs `early + gap`.
+- 64x64 icin seed 7 veya 40 epoch tekrar, sadece zaman/GPU yeterse.
