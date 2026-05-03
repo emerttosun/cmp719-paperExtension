@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cgm-mode", choices=["sigmoid", "residual"], default="sigmoid")
     parser.add_argument("--cgm-type", choices=["se", "eca"], default="se")
     parser.add_argument("--cgm-pooling", choices=["gap", "gap_gmp"], default="gap")
+    parser.add_argument("--cgm-init-bias", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -35,6 +36,7 @@ def main() -> None:
             cgm_mode=args.cgm_mode,
             cgm_type=args.cgm_type,
             cgm_pooling=args.cgm_pooling,
+            cgm_init_bias=args.cgm_init_bias,
         )
         y = model(x)
         assert tuple(y.shape) == (2, args.num_classes), (placement, y.shape)

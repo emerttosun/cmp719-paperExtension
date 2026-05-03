@@ -95,11 +95,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help=(
-            "Identity initialization bias for the gate output layer. With b>0, "
+            "Identity initialization bias for sigmoid CGM's gate output layer. With b>0, "
             "the gate's last layer is reset to weight=0, bias=b after global "
             "init, so sigmoid(b) is the initial gate value (b=4 -> ~0.982, "
-            "near identity). Default 0.0 disables the override and preserves "
-            "the original random init for backward compatibility."
+            "near identity). For gap_gmp, each pooling branch uses b/2 so the "
+            "summed logits still start at b. Default 0.0 disables the override "
+            "and preserves the original random init for backward compatibility."
         ),
     )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
@@ -117,7 +118,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use synthetic CIFAR-shaped data if CIFAR-100 download is temporarily unavailable.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.cgm_init_bias > 0.0 and args.cgm_mode != "sigmoid":
+        parser.error("--cgm-init-bias > 0 is only supported with --cgm-mode sigmoid.")
+    return args
 
 
 def set_seed(seed: int) -> None:

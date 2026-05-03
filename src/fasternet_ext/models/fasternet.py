@@ -70,12 +70,20 @@ class ChannelGateModule(nn.Module):
         self.gate_type = gate_type
         self.pooling = pooling
         self.init_bias = float(init_bias)
+        if self.init_bias > 0.0 and mode != "sigmoid":
+            raise ValueError("CGM identity init is only supported with cgm_mode='sigmoid'.")
         hidden = max(channels // reduction, 1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         if gate_type == "eca":
-            # bias=True so identity_init can shift logits to a positive value.
-            self.gate = nn.Conv1d(1, 1, kernel_size=eca_kernel_size, padding=eca_kernel_size // 2, bias=True)
+            # Keep bias disabled by default so prior ECA experiments remain reproducible.
+            self.gate = nn.Conv1d(
+                1,
+                1,
+                kernel_size=eca_kernel_size,
+                padding=eca_kernel_size // 2,
+                bias=self.init_bias > 0.0,
+            )
         else:
             self.gate = nn.Sequential(
                 nn.Conv2d(channels, hidden, kernel_size=1),
@@ -90,12 +98,13 @@ class ChannelGateModule(nn.Module):
         """Initialize the final gate layer so sigmoid output starts near 1.0.
 
         With init_bias = b > 0, the gate output layer is reset to weight=0 and
-        bias=b. The pooled descriptor has no influence at step 0, so sigmoid(b)
-        is the gate value at the first forward pass. With b=4 the gate starts
-        at ~0.982, making CGM behave as identity at training start. The model
-        then learns to deviate downward only when the gradient signal supports
-        it. Has no effect when init_bias <= 0 (preserves the original random
-        init for backward compatibility).
+        bias=b. For GAP+GMP pooling the per-branch bias is b/2 because logits
+        are summed. The pooled descriptor has no influence at step 0, so
+        sigmoid(b) is the gate value at the first forward pass. With b=4 the
+        gate starts at ~0.982, making sigmoid CGM behave near identity at
+        training start. The model then learns to deviate downward only when
+        the gradient signal supports it. Has no effect when init_bias <= 0
+        (preserves the original random init for backward compatibility).
 
         Must be called AFTER the global trunc_normal init (FasterNet does this
         in its __init__ after self.apply(self._init_weights)), otherwise the
@@ -103,15 +112,16 @@ class ChannelGateModule(nn.Module):
         """
         if self.init_bias <= 0.0:
             return
+        effective_bias = self.init_bias / 2.0 if self.pooling == "gap_gmp" else self.init_bias
         if self.gate_type == "eca":
             nn.init.zeros_(self.gate.weight)
             if self.gate.bias is not None:
-                nn.init.constant_(self.gate.bias, self.init_bias)
+                nn.init.constant_(self.gate.bias, effective_bias)
         else:
             last_conv = self.gate[-1]
             nn.init.zeros_(last_conv.weight)
             if last_conv.bias is not None:
-                nn.init.constant_(last_conv.bias, self.init_bias)
+                nn.init.constant_(last_conv.bias, effective_bias)
 
     def _gate_logits(self, pooled: Tensor) -> Tensor:
         if self.gate_type == "eca":
