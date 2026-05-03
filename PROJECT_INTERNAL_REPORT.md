@@ -434,3 +434,27 @@ python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_sum
 ```
 
 Onemli not: Onceki implementation'da `--measure-latency` gate stats'tan once calistigi icin, kaydedilen `latest_gate` degerleri validation image'lari yerine latency olcumundeki random tensor tarafindan ezilebiliyordu. Bu nedenle gate analysis validation loader uzerinden yenilenecek sekilde guncellendi. Yeni summary `gate_stats_num_images`, `gate_vectors` ve `scale_vectors` alanlarini da kaydeder.
+
+## 15. Tiny-ImageNet Centered CGM Sonuclari
+
+Centered CGM, proposal'daki "suppress or amplify" fikrini sigmoid-only gate'ten daha iyi temsil etmek icin denendi. Tiny-ImageNet 224 uzerinde ayni seed ve ayni 20 epoch protokolunde baseline tekrar calistirildi.
+
+| Dataset | Variant | Alpha | Seed | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| Tiny-ImageNet 224 | `none` | - | 42 | 61.54 | 45.28 | 2,880,700 | 337.017M | 1.016 ms | Guncel baseline |
+| Tiny-ImageNet 224 | `early + centered` | 0.50 | 42 | 60.16 | 44.42 | 2,881,202 | 337.080M | 1.253 ms | Genis scale araligi zarar verdi |
+| Tiny-ImageNet 224 | `early + centered` | 0.25 | 42 | 60.20 | 44.47 | 2,881,202 | 337.080M | 1.229 ms | Daha kontrollu ama baseline'i gecmedi |
+
+Gate/scale analizi:
+
+- `alpha=0.5` icin scale araligi `0.5-1.5`. Stage 1 ve Stage 2 kanal ortalamalari cogunlukla amplify yonunde kaydi. Stage 2 block 1 sample-level scale araligi `0.537-1.475` oldu; yani module oldukca agresif suppress/amplify yapabildi. Buna ragmen validation accuracy baseline'dan `-0.86` dusuk kaldi.
+- `alpha=0.25` icin scale araligi `0.75-1.25`. Stage 1 yine hafif amplify etti (`scale mean 1.023`), fakat Stage 2 block 0 ve block 1 suppress yonune kaydi (`scale mean 0.971` ve `0.930`). Kanal ortalamalarinda Stage 2 block 0 icin 13/20 kanal suppressed, 6/20 amplified; Stage 2 block 1 icin 20/20 kanal suppressed gorundu.
+- Alpha'yi daraltmak gate davranisini daha kontrollu ve stage-dependent hale getirdi, fakat accuracy'yi toparlamadi (`44.42 -> 44.47`).
+
+Yeni Tiny yorumu:
+
+> Tiny-ImageNet'te problem sadece gate'in fazla agresif olmasi degil. Hem genis amplify agirlikli centered CGM hem de daha dar/suppress agirlikli centered CGM baseline'dan dusuk kaldi. Bu, CIFAR-100'da gorulen CGM kazancinin Tiny-ImageNet'e genellenmedigini ve early PConv channel recalibration'in daha yuksek cozunurluklu/daha zor setting'de feature akisini bozabilecegini gosteriyor.
+
+Efficiency yorumu:
+
+> Parametre ve FLOPs overhead'i cok kucuk (`+502` parametre, yaklasik `+0.063M` FLOPs), ancak latency `1.016 ms` baseline'dan `1.229-1.253 ms` araligina cikti. Bu, FasterNet paper'inin "FLOPs tek basina yeterli degildir" argumanini destekleyen bir negatif sonuc olarak raporlanabilir.

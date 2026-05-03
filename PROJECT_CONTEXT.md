@@ -112,6 +112,15 @@ Additional completed tests after the first ablations:
 | CIFAR-100 32, 40e | `s2s4 + gap` | 42 | 55.37 | 2,758,210 | 27.636M | 1.261 ms | Worse than baseline at 40e |
 | CIFAR-100 64, 20e | `none` | 42 | 56.69 | 2,751,160 | 108.892M | 1.046 ms | Resize boosts overall accuracy |
 | CIFAR-100 64, 20e | `early + gap` | 42 | 56.92 | 2,751,662 | 108.913M | 1.223 ms | Still positive, but modest +0.23 |
+| Tiny-ImageNet 224, 20e | `none` v2 | 42 | 45.28 | 2,880,700 | 337.017M | 1.016 ms | Same-runtime baseline rerun |
+| Tiny-ImageNet 224, 20e | `early + centered, alpha=0.5` | 42 | 44.42 | 2,881,202 | 337.080M | 1.253 ms | Broad amplification hurt accuracy |
+| Tiny-ImageNet 224, 20e | `early + centered, alpha=0.25` | 42 | 44.47 | 2,881,202 | 337.080M | 1.229 ms | More controlled/stage-dependent but still below baseline |
+
+Centered CGM Tiny interpretation:
+
+- `alpha=0.5` allows scale `0.5-1.5`; Tiny learned mostly amplification in early stages, with Stage 2 block 1 using a wide sample-level scale range around `0.537-1.475`, but validation dropped to `44.42`.
+- `alpha=0.25` narrows scale to `0.75-1.25`; Stage 1 lightly amplified while Stage 2 became suppressive (`scale mean 0.971` and `0.930`), yet validation only reached `44.47`.
+- Current Tiny conclusion: CGM does not transfer to Tiny-ImageNet under the current recipe. The CIFAR gain is meaningful but dataset/regime dependent, and Tiny highlights latency overhead despite tiny FLOP/parameter overhead.
 
 Current consolidated conclusion:
 
