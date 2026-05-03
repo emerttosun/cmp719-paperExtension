@@ -397,6 +397,26 @@ def run_epoch(
 
 
 @torch.no_grad()
+def tensor_stats(tensor: torch.Tensor, bins: int, hist_min: float, hist_max: float) -> dict[str, object]:
+    flat = tensor.detach().float().reshape(-1).cpu()
+    hist = torch.histc(flat, bins=bins, min=hist_min, max=hist_max)
+    edges = torch.linspace(hist_min, hist_max, bins + 1)
+    return {
+        "mean": float(flat.mean()),
+        "std": float(flat.std(unbiased=False)),
+        "min": float(flat.min()),
+        "max": float(flat.max()),
+        "hist_counts": [int(value) for value in hist.tolist()],
+        "hist_edges": [float(value) for value in edges.tolist()],
+    }
+
+
+@torch.no_grad()
+def channel_means(tensor: torch.Tensor) -> list[float]:
+    return [float(value) for value in tensor.detach().float().mean(dim=(0, 2, 3)).cpu().tolist()]
+
+
+@torch.no_grad()
 def collect_gate_summary_on_loader(
     model: nn.Module,
     loader: DataLoader,
@@ -407,26 +427,43 @@ def collect_gate_summary_on_loader(
     was_training = model.training
     model.eval()
     total_seen = 0
+    gate_batches: dict[str, list[torch.Tensor]] = {}
+    scale_batches: dict[str, list[torch.Tensor]] = {}
+    scale_ranges: dict[str, tuple[float, float]] = {}
     for batch_idx, (images, _) in enumerate(tqdm(loader, leave=False, desc="gate-stats")):
         if batch_idx >= limit_batches:
             break
         images = images.to(device, non_blocking=True)
         model(images)
         total_seen += images.shape[0]
+        for name, module in model.named_modules():
+            latest_gate = getattr(module, "latest_gate", None)
+            latest_scale = getattr(module, "latest_scale", None)
+            if latest_gate is None or latest_scale is None:
+                continue
+            gate_batches.setdefault(name, []).append(latest_gate.detach().cpu())
+            scale_batches.setdefault(name, []).append(latest_scale.detach().cpu())
+            mode = getattr(module, "mode", "sigmoid")
+            alpha = float(getattr(module, "alpha", 0.0))
+            hist_min = 0.0 if mode == "sigmoid" else max(0.0, 1.0 - abs(alpha))
+            hist_max = 1.0 if mode == "sigmoid" else 1.0 + abs(alpha)
+            scale_ranges[name] = (hist_min, hist_max)
 
     summary: dict[str, object] = {"gate_stats_num_images": total_seen}
-    if hasattr(model, "collect_gate_means"):
-        summary["gate_means"] = model.collect_gate_means()
-    if hasattr(model, "collect_scale_means"):
-        summary["scale_means"] = model.collect_scale_means()
-    if hasattr(model, "collect_gate_stats"):
-        summary["gate_stats"] = model.collect_gate_stats(bins=bins)
-    if hasattr(model, "collect_scale_stats"):
-        summary["scale_stats"] = model.collect_scale_stats(bins=bins)
-    if hasattr(model, "collect_gate_vectors"):
-        summary["gate_vectors"] = model.collect_gate_vectors()
-    if hasattr(model, "collect_scale_vectors"):
-        summary["scale_vectors"] = model.collect_scale_vectors()
+    gate_tensors = {name: torch.cat(values, dim=0) for name, values in gate_batches.items()}
+    scale_tensors = {name: torch.cat(values, dim=0) for name, values in scale_batches.items()}
+    summary["gate_means"] = {name: float(tensor.mean()) for name, tensor in gate_tensors.items()}
+    summary["scale_means"] = {name: float(tensor.mean()) for name, tensor in scale_tensors.items()}
+    summary["gate_stats"] = {
+        name: tensor_stats(tensor, bins=bins, hist_min=0.0, hist_max=1.0)
+        for name, tensor in gate_tensors.items()
+    }
+    summary["scale_stats"] = {
+        name: tensor_stats(tensor, bins=bins, hist_min=scale_ranges[name][0], hist_max=scale_ranges[name][1])
+        for name, tensor in scale_tensors.items()
+    }
+    summary["gate_vectors"] = {name: channel_means(tensor) for name, tensor in gate_tensors.items()}
+    summary["scale_vectors"] = {name: channel_means(tensor) for name, tensor in scale_tensors.items()}
 
     model.train(was_training)
     return summary
