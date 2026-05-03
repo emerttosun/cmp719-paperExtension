@@ -125,6 +125,10 @@ Additional completed tests after the first ablations:
 | CIFAR-100 32, T1 40e | `s2 + sigmoid` | 42 | 57.20 | 6,441,268 | 69.812M | 1.191 ms | Similar gain to s1, slower |
 | CIFAR-100 32, T1 40e | `s3 + sigmoid` | 42 | 56.95 | 6,457,188 | 69.832M | 1.517 ms | Small gain, high latency |
 | CIFAR-100 32, T1 40e | `s4 + sigmoid` | 42 | 56.84 | 6,456,868 | 69.825M | 1.181 ms | Small gain |
+| CIFAR-100 32, T0 20e | `early + sigmoid, r=2` | 42 | 50.64 | 2,752,135 | 27.632M | 1.188 ms | Reduction ablation; below r=4 |
+| CIFAR-100 32, T0 20e | `early + sigmoid, r=8` | 42 | 50.39 | 2,751,395 | 27.632M | 1.192 ms | Reduction ablation; weak gain |
+| CIFAR-100 32, T1 40e | `early + sigmoid, r=2` | 42 | 57.06 | 6,442,588 | 69.818M | 1.227 ms | Reduction ablation; below r=4 |
+| CIFAR-100 32, T1 40e | `early + sigmoid, r=8` | 42 | 56.84 | 6,440,830 | 69.816M | 1.236 ms | Reduction ablation; weak gain |
 
 Centered CGM Tiny interpretation:
 
@@ -137,6 +141,7 @@ T1 interpretation:
 - T1 20e initially made CGM look harmful (`early + sigmoid` 52.79 vs baseline 54.00), but 40e reversed the conclusion (`early + sigmoid` 57.37 vs baseline 56.71).
 - T1 stage ablation at 40e supports early-stage gating: `s1` and `s2` each provide about +0.5 val acc, while `s3/s4` give smaller gains with worse latency/parameter cost.
 - `s1 + sigmoid` is the best T1 trade-off; `early + sigmoid` is the best T1 accuracy.
+- Reduction ratio ablation favors `r=4` for both T0 and T1. `r=2` adds gate capacity without improving accuracy; `r=8` weakens the effect while not clearly improving latency.
 
 Current consolidated conclusion:
 

@@ -505,3 +505,22 @@ Stage-wise yorum:
 Yeni T1 sonucu:
 
 > T1 deneyleri, CGM'nin sadece T0'a ozgu olmadigini fakat yeterli egitim ve dogru placement gerektirdigini gosteriyor. 40 epoch'ta erken stage sigmoid CGM faydali hale geldi; buna karsin FLOPs artisi cok kucuk kalirken latency artisi belirgin oldu. Bu sonuc hem proposal'in early-stage fikrini destekler, hem de FasterNet'in "FLOPs tek basina yeterli degildir" argumanini tekrar dogrular.
+
+## 17. CGM Reduction Ratio Ablation
+
+Proposal'da CGM bottleneck reduction ratio `r` icin ablation planlanmisti. Varsayilan deger `r=4` idi. `r=2` daha genis/kapasiteli gate, `r=8` daha dar/hafif gate anlamina gelir.
+
+| Model | Setting | Reduction `r` | Epoch | Seed | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| T0 | `none` | - | 20 | 42 | 50.52 | 2,751,160 | 27.626M | ~1.009 ms | Baseline |
+| T0 | `early + sigmoid` | 2 | 20 | 42 | 50.64 | 2,752,135 | 27.632M | 1.188 ms | Baseline'dan az iyi, r=4'ten dusuk |
+| T0 | `early + sigmoid` | 4 | 20 | 42 | 51.03 | 2,751,662 | 27.632M | ~1.18 ms | En iyi T0 r |
+| T0 | `early + sigmoid` | 8 | 20 | 42 | 50.39 | 2,751,395 | 27.632M | 1.192 ms | Fazla dar bottleneck, baseline altinda |
+| T1 | `none` | - | 40 | 42 | 56.71 | 6,440,164 | 69.807M | 1.056 ms | Baseline |
+| T1 | `early + sigmoid` | 2 | 40 | 42 | 57.06 | 6,442,588 | 69.818M | 1.227 ms | Baseline'dan iyi, r=4'ten dusuk |
+| T1 | `early + sigmoid` | 4 | 40 | 42 | 57.37 | 6,441,416 | 69.816M | 1.244 ms | En iyi T1 r |
+| T1 | `early + sigmoid` | 8 | 40 | 42 | 56.84 | 6,440,830 | 69.816M | 1.236 ms | Gain zayif |
+
+Reduction ratio yorumu:
+
+> Hem T0 hem T1 icin en iyi sonuc `r=4` ile geldi. `r=2` daha fazla gate kapasitesi sunsa da accuracy'yi artirmadi; `r=8` ise daha hafif olmasina ragmen etkiyi zayiflatti. Latency farklari reduction ratio'lar arasinda kucuk oldugu icin `r=4` en iyi accuracy-overhead trade-off olarak kaldi.
