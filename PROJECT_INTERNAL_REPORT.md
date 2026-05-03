@@ -227,3 +227,77 @@ python train_classification.py --dataset cifar100 --dataset-source hf --image-si
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s3 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s4 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_e20
 ```
+
+## 10. Per-Stage ve Combined Placement Sonuclari
+
+Per-stage ablation, CIFAR-100, FasterNet-T0, 20 epoch, seed 42:
+
+| Variant | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---|
+| `s1` | 50.52 | 2,751,212 | 27.629M | 1.084 ms | Baseline ile ayni |
+| `s2` | 50.89 | 2,751,610 | 27.629M | 1.150 ms | Kucuk ve ucuz kazanc |
+| `s3` | 51.39 | 2,757,960 | 27.638M | 1.452 ms | Tek seed'de en yuksek, ama pahali |
+| `s4` | 50.81 | 2,757,760 | 27.633M | 1.144 ms | Kucuk kazanc |
+
+`s3` icin seed 7 tekrari:
+
+| Variant | Seed | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---:|---|
+| `s3` | 7 | 50.29 | 2,757,960 | 27.638M | 1.487 ms | Seed 42 sonucu stabil degil |
+
+Combined placement denemeleri:
+
+| Variant | Seed | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---:|---:|---:|---:|---:|---|
+| `s2s3` | 42 | 51.04 | 2,758,410 | 27.641M | 1.559 ms | Accuracy early ile benzer, latency daha kotu |
+| `s2s4` | 42 | 51.06 | 2,758,210 | 27.636M | 1.264 ms | Early'ye yakin, latency makul |
+
+Yeni yorum:
+
+> `early` hala en guvenli ana yontem. `s3` seed-sensitive gorunuyor. `s2s3`, `early` kadar iyi accuracy verse de latency maliyeti yuksek. `s2s4` ise ilginc bir ikinci aday: seed 42'de early ile benzer accuracy ve makul latency verdi.
+
+`s2s4` gate mean degerlerinde son stage ikinci block oldukca yuksek cikti:
+
+```text
+stages.6.blocks.0.spatial_mixing.channel_gate = 0.5671
+stages.6.blocks.1.spatial_mixing.channel_gate = 0.7816
+```
+
+Bu, `s2s4` varyantinda gec stage gate'lerinin bazi PConv kanallarini ortalamada daha guclu gecirdigini gosterir. Bu semantik olarak hangi feature'in secildigini kanitlamaz, ama stage-specific gate behavior icin raporda kullanilabilecek guzel bir gozlemdir.
+
+## 11. Yeni Aday: GAP+GMP Pooling
+
+`early` en iyi trade-off oldugu icin CGM'nin pooling sinyali guclendirildi.
+
+Eski CGM pooling:
+
+```text
+GAP(x) -> shared gate -> sigmoid
+```
+
+Yeni opsiyonel pooling:
+
+```text
+GAP(x) -> shared gate logits
+GMP(x) -> same shared gate logits
+sum logits -> sigmoid
+```
+
+Yeni CLI parametresi:
+
+```bash
+--cgm-pooling gap_gmp
+```
+
+Ilk denenmesi gereken iki aday:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_early_gap_gmp_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2s4 --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_s2s4_gap_gmp_e20
+```
+
+Karar kurali:
+
+- Eger `early + gap_gmp` eski `early gap` ortalamasi olan 51.19'u gecerse ana yontem `Early Dual-Pooling CGM` olabilir.
+- Eger `s2s4 + gap_gmp` en iyi sonucu verirse ana aday `Selective S2+S4 Dual-Pooling CGM` olabilir.
+- Ikisi de iyilesmezse eski `early gap` ana yontem kalir; GAP+GMP ablation olarak raporlanir.

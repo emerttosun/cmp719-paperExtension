@@ -77,9 +77,17 @@ Per-stage ablation, CIFAR-100, seed 42:
 - `s3`: val acc 51.39, latency 1.452 ms.
 - `s4`: val acc 50.81, latency 1.144 ms.
 
+Follow-up placement results:
+
+| Variant | Seed | Val Acc | Params | FLOPs | Latency | Note |
+|---|---:|---:|---:|---:|---:|---|
+| `s3` | 7 | 50.29 | 2,757,960 | 27.638M | 1.487 ms | Seed 42'deki 51.39 stabilize olmadi |
+| `s2s3` | 42 | 51.04 | 2,758,410 | 27.641M | 1.559 ms | Early ile benzer accuracy, daha yavas |
+| `s2s4` | 42 | 51.06 | 2,758,210 | 27.636M | 1.264 ms | Early'ye cok yakin, makul latency |
+
 En onemli yeni yorum:
 
-> CGM'nin etkisi stage-dependent. Her yere eklemek iyi degil. Tek seed'de `s3-only` en iyi accuracy'yi verdi, fakat latency maliyeti daha yuksek. Bunu ana bulgu yapmadan once `s3` icin ikinci seed gerekir.
+> CGM'nin etkisi stage-dependent. Her yere eklemek iyi degil. `s3-only` seed 42'de parlak gorundu ama seed 7'de dusuk geldi, bu yuzden ana yontem olmamali. Su an en guvenli ana aday `early`; en ilginc ikinci aday ise `s2s4`.
 
 Tiny-ImageNet 224, FasterNet-T0, 20 epoch:
 
@@ -103,16 +111,16 @@ Preliminary progress report icin:
 Hemen siradaki deney:
 
 ```bash
-python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s3 --seed 7 --measure-latency --save-gate-stats --output-dir runs_cifar_stage_seed7_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_early_gap_gmp_e20
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement s2s4 --cgm-pooling gap_gmp --seed 42 --measure-latency --save-gate-stats --output-dir runs_cifar_s2s4_gap_gmp_e20
 ```
 
 Final icin opsiyonel gelistirmeler:
 
-- `s3` ikinci seed iyi gelirse `s3` ana accuracy adayi, `early/s2` latency-accuracy trade-off adayi olarak raporlanabilir.
-- `s2+s3` gibi yeni bir combined placement eklenebilir.
-- `s2s3` placement koda eklendi; seed 42/7 ile denenmesi gerekiyor.
-- `s2s4` placement koda eklendi; komsu olmayan stage kombinasyonu kontrolu olarak denenebilir.
-- `early + gap_gmp` koda eklendi; en iyi trade-off adayini daha guclu gate sinyaliyle test etmek icin denenmeli.
+- `early + gap_gmp` ve `s2s4 + gap_gmp` seed 42 ile denenmeli.
+- Bunlardan biri eski `early gap` ortalamasi olan 51.19'u gecerse seed 7 ile dogrulanmali.
+- `s3` ana yontem degil; seed-sensitive ablation olarak raporlanabilir.
+- `s2s3` ana yontem degil; latency maliyeti erken/`s2s4` adaylarindan yuksek.
 - 3 seed ortalama ve standart sapma raporlanabilir.
 - 30/50 epoch daha uzun CIFAR-100 deneyleri yapilabilir.
 - FasterNet-T1 baseline vs en iyi CGM varyanti denenebilir.
@@ -126,4 +134,4 @@ Final icin opsiyonel gelistirmeler:
 - 20 epoch sonuclari preliminary'dir; kucuk accuracy farklari seed etkisine duyarlidir.
 - Latency degerleri ortam/GPU'ya gore degisir; ayni ortamda karsilastirma olarak kullanilmali.
 - FLOPs tek basina yeterli yorum degildir; FasterNet projesinde latency ve operator overhead onemlidir.
-- `s3` sonucu umut verici ama su an tek seed oldugu icin kesin sonuc gibi yazilmamali.
+- `s3` seed 42 sonucu tek basina kesin sonuc gibi yazilmamali; seed 7'de 50.29'a dustu.
