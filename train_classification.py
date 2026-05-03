@@ -62,9 +62,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cgm-reduction", type=int, default=4)
     parser.add_argument(
         "--cgm-mode",
-        choices=["sigmoid", "residual"],
+        choices=["sigmoid", "residual", "centered"],
         default="sigmoid",
-        help="sigmoid multiplies by gates in [0,1]; residual scales around identity.",
+        help=(
+            "sigmoid multiplies by gates in [0,1]; residual scales with "
+            "1 + alpha * (sigmoid - 0.5); centered scales with "
+            "1 + alpha * (2 * sigmoid - 1). With centered and alpha=0.5, "
+            "the scale range is [0.5, 1.5]."
+        ),
     )
     parser.add_argument(
         "--cgm-type",
@@ -88,7 +93,11 @@ def parse_args() -> argparse.Namespace:
         "--cgm-alpha",
         type=float,
         default=0.5,
-        help="Residual CGM strength. With alpha=0.5, scale is in [0.75, 1.25].",
+        help=(
+            "Identity-centered CGM strength. For --cgm-mode centered, alpha=0.5 "
+            "gives scale in [0.5, 1.5]. For --cgm-mode residual, alpha=0.5 "
+            "gives scale in [0.75, 1.25]."
+        ),
     )
     parser.add_argument(
         "--cgm-init-bias",
@@ -109,6 +118,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measure-latency", action="store_true")
     parser.add_argument("--save-gate-stats", action="store_true")
     parser.add_argument(
+        "--gate-hist-bins",
+        type=int,
+        default=10,
+        help="Number of bins used for saved gate/scale histograms when --save-gate-stats is set.",
+    )
+    parser.add_argument(
         "--disable-cifar-mirror",
         action="store_true",
         help="Do not try mirror downloads if the default torchvision CIFAR-100 URL fails.",
@@ -121,6 +136,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.cgm_init_bias > 0.0 and args.cgm_mode != "sigmoid":
         parser.error("--cgm-init-bias > 0 is only supported with --cgm-mode sigmoid.")
+    if args.gate_hist_bins < 1:
+        parser.error("--gate-hist-bins must be at least 1.")
     return args
 
 
@@ -449,6 +466,10 @@ def main() -> None:
         summary["gate_means"] = model.collect_gate_means()
     if args.save_gate_stats and hasattr(model, "collect_scale_means"):
         summary["scale_means"] = model.collect_scale_means()
+    if args.save_gate_stats and hasattr(model, "collect_gate_stats"):
+        summary["gate_stats"] = model.collect_gate_stats(bins=args.gate_hist_bins)
+    if args.save_gate_stats and hasattr(model, "collect_scale_stats"):
+        summary["scale_stats"] = model.collect_scale_stats(bins=args.gate_hist_bins)
 
     summary_path = output_dir / f"{args.model}_{args.cgm_placement}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

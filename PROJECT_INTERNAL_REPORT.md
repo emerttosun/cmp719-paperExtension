@@ -389,8 +389,45 @@ Yapilmis ana test kategorileri:
 Bundan sonra denenebilecekler:
 
 - Stronger recipe: warmup, TrivialAugment, MixUp, EMA. Adil karsilastirma icin baseline ve CGM ayni recipe ile egitilmeli.
-- Centered sigmoid gate: `scale = 2 * sigmoid(logits)`. Bu, gate'in hem azaltma hem artirma yapmasini saglar.
+- Centered sigmoid gate: `scale = 1 + alpha * (2 * sigmoid(logits) - 1)`. `alpha=0.5` icin scale araligi `0.5-1.5` olur. Bu, gate'in hem azaltma hem artirma yapmasini saglarken tamamen sert `0-2` araligindan daha kontrolludur.
 - Bypass channel gate: PConv islenen kanallar ve bypass kanallarini ayri gate'lemek, FasterNet'e daha ozgu bir extension olur.
 - Gate std/histogram: mean yerine kanal bazli dagilim kaydedilmeli; gate gercekten ayrisiyor mu daha net gorulur.
 - T1 modeli: `fasternet_t1` baseline vs `early + gap`.
 - 64x64 icin seed 7 veya 40 epoch tekrar, sadece zaman/GPU yeterse.
+
+## 14. Yeni Ana Aday: Centered Early CGM ve Guclu Gate Analysis
+
+Mevcut sigmoid CGM sadece `0-1` araliginda scale uretiyor; bu nedenle PConv kanallarini guclendirmek yerine sadece bastirabiliyor veya en fazla ayni seviyeye yaklastirabiliyor. Proposal'daki "suppress or amplify" fikrine daha uygun yeni aday:
+
+```text
+gate = sigmoid(logits)
+scale = 1 + alpha * (2 * gate - 1)
+x = x * scale
+```
+
+`alpha=0.5` icin scale araligi:
+
+```text
+0.5 - 1.5
+```
+
+Bu mod `centered` olarak koda eklendi. Ana denenecek konfigurasyon:
+
+```bash
+python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --cgm-placement early --cgm-mode centered --cgm-alpha 0.5 --measure-latency --save-gate-stats --output-dir runs_cifar_centered_e20
+```
+
+Gate analysis de guclendirildi. Yeni summary JSON artik sadece mean degil, her CGM katmani icin sunlari da kaydediyor:
+
+- gate mean/std/min/max
+- gate histogram
+- effective scale mean/std/min/max
+- effective scale histogram
+
+Plot komutlari:
+
+```bash
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat gate
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --hist
+```

@@ -87,6 +87,8 @@ Supported CGM modes:
 
 - `sigmoid`: original gate, `x = x * sigmoid(gate)`
 - `residual`: identity-preserving gate, `x = x * (1 + alpha * (sigmoid(gate) - 0.5))`
+- `centered`: identity-centered gate, `x = x * (1 + alpha * (2 * sigmoid(gate) - 1))`.
+  With `--cgm-alpha 0.5`, the effective scale range is `0.5-1.5`.
 
 Supported CGM types:
 
@@ -112,6 +114,23 @@ python train_classification.py \
   --measure-latency \
   --save-gate-stats \
   --output-dir runs_cifar_residual_e20
+```
+
+Centered CGM example, allowing both suppression and amplification:
+
+```bash
+python train_classification.py \
+  --model fasternet_t0 \
+  --dataset cifar100 \
+  --dataset-source hf \
+  --epochs 20 \
+  --batch-size 128 \
+  --cgm-placement early \
+  --cgm-mode centered \
+  --cgm-alpha 0.5 \
+  --measure-latency \
+  --save-gate-stats \
+  --output-dir runs_cifar_centered_e20
 ```
 
 ECA-style CGM example:
@@ -177,6 +196,13 @@ To plot layer-wise gate means after a CGM run:
 
 ```bash
 python scripts/plot_gate_means.py runs/fasternet_t0_all_summary.json
+```
+
+To inspect the effective scale values and saved histograms:
+
+```bash
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale
+python scripts/plot_gate_means.py runs_cifar_centered_e20/fasternet_t0_early_summary.json --stat scale --hist
 ```
 
 ## Tiny-ImageNet resized experiment

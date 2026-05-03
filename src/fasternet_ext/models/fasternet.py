@@ -17,7 +17,7 @@ from torch import Tensor, nn
 
 
 CGMPlacement = Literal["none", "all", "early", "late", "s1", "s2", "s3", "s4", "s2s3", "s2s4"]
-CGMMode = Literal["sigmoid", "residual"]
+CGMMode = Literal["sigmoid", "residual", "centered"]
 CGMType = Literal["se", "eca"]
 CGMPooling = Literal["gap", "gap_gmp"]
 
@@ -57,7 +57,7 @@ class ChannelGateModule(nn.Module):
         init_bias: float = 0.0,
     ) -> None:
         super().__init__()
-        if mode not in {"sigmoid", "residual"}:
+        if mode not in {"sigmoid", "residual", "centered"}:
             raise ValueError(f"Unsupported CGM mode: {mode}")
         if gate_type not in {"se", "eca"}:
             raise ValueError(f"Unsupported CGM gate type: {gate_type}")
@@ -134,7 +134,12 @@ class ChannelGateModule(nn.Module):
             logits = logits + self._gate_logits(self.max_pool(x))
         gate = torch.sigmoid(logits)
         self.latest_gate = gate.detach()
-        scale = 1.0 + self.alpha * (gate - 0.5) if self.mode == "residual" else gate
+        if self.mode == "centered":
+            scale = 1.0 + self.alpha * (2.0 * gate - 1.0)
+        elif self.mode == "residual":
+            scale = 1.0 + self.alpha * (gate - 0.5)
+        else:
+            scale = gate
         self.latest_scale = scale.detach()
         return x * scale
 
@@ -497,6 +502,40 @@ class FasterNet(nn.Module):
         for name, module in self.named_modules():
             if isinstance(module, ChannelGateModule) and module.latest_scale is not None:
                 stats[name] = float(module.latest_scale.mean().cpu())
+        return stats
+
+    @staticmethod
+    @torch.no_grad()
+    def _tensor_stats(tensor: Tensor, bins: int, hist_min: float, hist_max: float) -> dict[str, object]:
+        flat = tensor.detach().float().reshape(-1).cpu()
+        hist = torch.histc(flat, bins=bins, min=hist_min, max=hist_max)
+        edges = torch.linspace(hist_min, hist_max, bins + 1)
+        return {
+            "mean": float(flat.mean()),
+            "std": float(flat.std(unbiased=False)),
+            "min": float(flat.min()),
+            "max": float(flat.max()),
+            "hist_counts": [int(value) for value in hist.tolist()],
+            "hist_edges": [float(value) for value in edges.tolist()],
+        }
+
+    @torch.no_grad()
+    def collect_gate_stats(self, bins: int = 10) -> dict[str, dict[str, object]]:
+        stats: dict[str, dict[str, object]] = {}
+        for name, module in self.named_modules():
+            if isinstance(module, ChannelGateModule) and module.latest_gate is not None:
+                stats[name] = self._tensor_stats(module.latest_gate, bins=bins, hist_min=0.0, hist_max=1.0)
+        return stats
+
+    @torch.no_grad()
+    def collect_scale_stats(self, bins: int = 10) -> dict[str, dict[str, object]]:
+        stats: dict[str, dict[str, object]] = {}
+        for name, module in self.named_modules():
+            if isinstance(module, ChannelGateModule) and module.latest_scale is not None:
+                scale = module.latest_scale
+                hist_min = 0.0 if module.mode == "sigmoid" else max(0.0, 1.0 - abs(module.alpha))
+                hist_max = 1.0 if module.mode == "sigmoid" else 1.0 + abs(module.alpha)
+                stats[name] = self._tensor_stats(scale, bins=bins, hist_min=hist_min, hist_max=hist_max)
         return stats
 
 
