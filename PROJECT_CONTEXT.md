@@ -31,6 +31,9 @@ Arastirma sorusu:
 - CGM type secenekleri:
   - `se`: GAP -> 1x1 Conv -> ReLU -> 1x1 Conv -> sigmoid
   - `eca`: GAP -> 1D channel conv -> sigmoid
+- CGM pooling secenekleri:
+  - `gap`: eski davranis, sadece Global Average Pooling
+  - `gap_gmp`: ayni gate agirliklariyla GAP + Global Max Pooling sinyallerini birlestirir
 - CGM mode secenekleri:
   - `sigmoid`: `x = x * sigmoid(gate)`
   - `residual`: `x = x * (1 + alpha * (sigmoid(gate) - 0.5))`
@@ -109,6 +112,7 @@ Final icin opsiyonel gelistirmeler:
 - `s2+s3` gibi yeni bir combined placement eklenebilir.
 - `s2s3` placement koda eklendi; seed 42/7 ile denenmesi gerekiyor.
 - `s2s4` placement koda eklendi; komsu olmayan stage kombinasyonu kontrolu olarak denenebilir.
+- `early + gap_gmp` koda eklendi; en iyi trade-off adayini daha guclu gate sinyaliyle test etmek icin denenmeli.
 - 3 seed ortalama ve standart sapma raporlanabilir.
 - 30/50 epoch daha uzun CIFAR-100 deneyleri yapilabilir.
 - FasterNet-T1 baseline vs en iyi CGM varyanti denenebilir.

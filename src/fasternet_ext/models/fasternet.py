@@ -19,6 +19,7 @@ from torch import Tensor, nn
 CGMPlacement = Literal["none", "all", "early", "late", "s1", "s2", "s3", "s4", "s2s3", "s2s4"]
 CGMMode = Literal["sigmoid", "residual"]
 CGMType = Literal["se", "eca"]
+CGMPooling = Literal["gap", "gap_gmp"]
 
 
 class DropPath(nn.Module):
@@ -52,40 +53,45 @@ class ChannelGateModule(nn.Module):
         alpha: float = 0.5,
         gate_type: CGMType = "se",
         eca_kernel_size: int = 3,
+        pooling: CGMPooling = "gap",
     ) -> None:
         super().__init__()
         if mode not in {"sigmoid", "residual"}:
             raise ValueError(f"Unsupported CGM mode: {mode}")
         if gate_type not in {"se", "eca"}:
             raise ValueError(f"Unsupported CGM gate type: {gate_type}")
+        if pooling not in {"gap", "gap_gmp"}:
+            raise ValueError(f"Unsupported CGM pooling: {pooling}")
         if eca_kernel_size % 2 == 0:
             raise ValueError("ECA kernel size must be odd.")
         self.mode = mode
         self.alpha = alpha
         self.gate_type = gate_type
+        self.pooling = pooling
         hidden = max(channels // reduction, 1)
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
         if gate_type == "eca":
-            self.gate = nn.Sequential(
-                nn.Conv1d(1, 1, kernel_size=eca_kernel_size, padding=eca_kernel_size // 2, bias=False),
-                nn.Sigmoid(),
-            )
+            self.gate = nn.Conv1d(1, 1, kernel_size=eca_kernel_size, padding=eca_kernel_size // 2, bias=False)
         else:
             self.gate = nn.Sequential(
                 nn.Conv2d(channels, hidden, kernel_size=1),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(hidden, channels, kernel_size=1),
-                nn.Sigmoid(),
             )
         self.latest_gate: Optional[Tensor] = None
         self.latest_scale: Optional[Tensor] = None
 
-    def forward(self, x: Tensor) -> Tensor:
-        pooled = self.pool(x)
+    def _gate_logits(self, pooled: Tensor) -> Tensor:
         if self.gate_type == "eca":
-            gate = self.gate(pooled.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-        else:
-            gate = self.gate(pooled)
+            return self.gate(pooled.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        return self.gate(pooled)
+
+    def forward(self, x: Tensor) -> Tensor:
+        logits = self._gate_logits(self.avg_pool(x))
+        if self.pooling == "gap_gmp":
+            logits = logits + self._gate_logits(self.max_pool(x))
+        gate = torch.sigmoid(logits)
         self.latest_gate = gate.detach()
         scale = 1.0 + self.alpha * (gate - 0.5) if self.mode == "residual" else gate
         self.latest_scale = scale.detach()
@@ -106,6 +112,7 @@ class PartialConv3(nn.Module):
         cgm_alpha: float = 0.5,
         cgm_type: CGMType = "se",
         eca_kernel_size: int = 3,
+        cgm_pooling: CGMPooling = "gap",
     ) -> None:
         super().__init__()
         self.dim_conv3 = dim // n_div
@@ -122,6 +129,7 @@ class PartialConv3(nn.Module):
                 alpha=cgm_alpha,
                 gate_type=cgm_type,
                 eca_kernel_size=eca_kernel_size,
+                pooling=cgm_pooling,
             )
             if use_cgm
             else nn.Identity()
@@ -163,6 +171,7 @@ class MLPBlock(nn.Module):
         cgm_alpha: float,
         cgm_type: CGMType,
         eca_kernel_size: int,
+        cgm_pooling: CGMPooling,
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
@@ -176,6 +185,7 @@ class MLPBlock(nn.Module):
             cgm_alpha=cgm_alpha,
             cgm_type=cgm_type,
             eca_kernel_size=eca_kernel_size,
+            cgm_pooling=cgm_pooling,
         )
         self.mlp = nn.Sequential(
             nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=False),
@@ -217,6 +227,7 @@ class BasicStage(nn.Module):
         cgm_alpha: float,
         cgm_type: CGMType,
         eca_kernel_size: int,
+        cgm_pooling: CGMPooling,
     ) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
@@ -236,6 +247,7 @@ class BasicStage(nn.Module):
                     cgm_alpha=cgm_alpha,
                     cgm_type=cgm_type,
                     eca_kernel_size=eca_kernel_size,
+                    cgm_pooling=cgm_pooling,
                 )
                 for drop_path_i in drop_path
             ]
@@ -326,6 +338,7 @@ class FasterNet(nn.Module):
         cgm_alpha: float = 0.5,
         cgm_type: CGMType = "se",
         eca_kernel_size: int = 3,
+        cgm_pooling: CGMPooling = "gap",
     ) -> None:
         super().__init__()
         if norm_layer != "BN":
@@ -340,6 +353,7 @@ class FasterNet(nn.Module):
         self.cgm_alpha = cgm_alpha
         self.cgm_type = cgm_type
         self.eca_kernel_size = eca_kernel_size
+        self.cgm_pooling = cgm_pooling
         self.num_features = int(embed_dim * 2 ** (len(depths) - 1))
 
         self.patch_embed = PatchEmbed(
@@ -373,6 +387,7 @@ class FasterNet(nn.Module):
                     cgm_alpha=cgm_alpha,
                     cgm_type=cgm_type,
                     eca_kernel_size=eca_kernel_size,
+                    cgm_pooling=cgm_pooling,
                 )
             )
             if stage_idx < len(depths) - 1:
@@ -453,6 +468,7 @@ def build_fasternet(
     cgm_alpha: float = 0.5,
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
+    cgm_pooling: CGMPooling = "gap",
 ) -> FasterNet:
     cfg = MODEL_CONFIGS[model_name]
     patch_size = 2 if image_size <= 64 else 4
@@ -469,6 +485,7 @@ def build_fasternet(
         cgm_alpha=cgm_alpha,
         cgm_type=cgm_type,
         eca_kernel_size=eca_kernel_size,
+        cgm_pooling=cgm_pooling,
     )
 
 
@@ -481,6 +498,7 @@ def fasternet_t0(
     cgm_alpha: float = 0.5,
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
+    cgm_pooling: CGMPooling = "gap",
 ) -> FasterNet:
     return build_fasternet(
         "fasternet_t0",
@@ -492,6 +510,7 @@ def fasternet_t0(
         cgm_alpha,
         cgm_type,
         eca_kernel_size,
+        cgm_pooling,
     )
 
 
@@ -504,6 +523,7 @@ def fasternet_t1(
     cgm_alpha: float = 0.5,
     cgm_type: CGMType = "se",
     eca_kernel_size: int = 3,
+    cgm_pooling: CGMPooling = "gap",
 ) -> FasterNet:
     return build_fasternet(
         "fasternet_t1",
@@ -515,4 +535,5 @@ def fasternet_t1(
         cgm_alpha,
         cgm_type,
         eca_kernel_size,
+        cgm_pooling,
     )

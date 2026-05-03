@@ -73,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         help="Gate generator type: SE-style bottleneck MLP or ECA-style 1D channel convolution.",
     )
     parser.add_argument(
+        "--cgm-pooling",
+        choices=["gap", "gap_gmp"],
+        default="gap",
+        help="Pooling signal used by CGM: GAP only, or shared-weight GAP+GMP.",
+    )
+    parser.add_argument(
         "--eca-kernel-size",
         type=int,
         default=3,
@@ -364,6 +370,7 @@ def main() -> None:
         cgm_alpha=args.cgm_alpha,
         cgm_type=args.cgm_type,
         eca_kernel_size=args.eca_kernel_size,
+        cgm_pooling=args.cgm_pooling,
     ).to(device)
 
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -374,7 +381,8 @@ def main() -> None:
     flops = try_count_flops(model, args.image_size, device)
     print(
         f"Model: {args.model} | CGM: {args.cgm_placement} | "
-        f"type: {args.cgm_type} | mode: {args.cgm_mode} | params: {params:,}"
+        f"type: {args.cgm_type} | pooling: {args.cgm_pooling} | "
+        f"mode: {args.cgm_mode} | params: {params:,}"
     )
     if flops is not None:
         print(f"FLOPs: {flops / 1e6:.2f}M")
@@ -411,6 +419,7 @@ def main() -> None:
         "cgm_mode": args.cgm_mode,
         "cgm_alpha": args.cgm_alpha,
         "cgm_type": args.cgm_type,
+        "cgm_pooling": args.cgm_pooling,
         "eca_kernel_size": args.eca_kernel_size,
         "params": params,
         "flops": flops,
