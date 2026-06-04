@@ -51,6 +51,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--image-size", type=int, default=32)
+    parser.add_argument(
+        "--augmentation",
+        choices=["simple", "cifar", "tiny"],
+        default="simple",
+        help=(
+            "Training augmentation recipe. simple preserves the original crop/flip recipe; "
+            "cifar and tiny enable stronger dataset-specific image augmentation."
+        ),
+    )
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
@@ -149,6 +158,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--gate-hist-bins must be at least 1.")
     if args.gate_stats_batches < 1:
         parser.error("--gate-stats-batches must be at least 1.")
+    if args.augmentation == "cifar" and args.dataset not in {"cifar100", "fake_cifar100"}:
+        parser.error("--augmentation cifar is only valid with CIFAR-100 datasets.")
+    if args.augmentation == "tiny" and args.dataset != "tiny_imagenet":
+        parser.error("--augmentation tiny is only valid with Tiny-ImageNet.")
     return args
 
 
@@ -313,18 +326,38 @@ def build_cifar100(args: argparse.Namespace, train_transform, val_transform):
         ) from exc
 
 
-def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader, int]:
+def build_transforms(args: argparse.Namespace):
     mean, std = (IMAGENET_MEAN, IMAGENET_STD) if args.dataset == "tiny_imagenet" else (CIFAR100_MEAN, CIFAR100_STD)
     resize = [] if args.image_size == 32 else [transforms.Resize((args.image_size, args.image_size))]
-    train_transform = transforms.Compose(
-        [
+
+    if args.augmentation == "simple":
+        train_steps = [
             *resize,
             transforms.RandomCrop(args.image_size, padding=4 if args.image_size == 32 else 0),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ]
-    )
+    elif args.augmentation == "cifar":
+        train_steps = [
+            transforms.RandomCrop(args.image_size, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.TrivialAugmentWide(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.15), ratio=(0.3, 3.3)),
+        ]
+    else:
+        train_steps = [
+            transforms.RandomResizedCrop(args.image_size, scale=(0.65, 1.0), ratio=(0.75, 1.33)),
+            transforms.RandomHorizontalFlip(),
+            transforms.TrivialAugmentWide(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.20), ratio=(0.3, 3.3)),
+        ]
+
+    train_transform = transforms.Compose(train_steps)
     val_transform = transforms.Compose(
         [
             *resize,
@@ -332,6 +365,11 @@ def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader,
             transforms.Normalize(mean, std),
         ]
     )
+    return train_transform, val_transform
+
+
+def build_dataloaders(args: argparse.Namespace) -> tuple[DataLoader, DataLoader, int]:
+    train_transform, val_transform = build_transforms(args)
     if args.dataset == "fake_cifar100":
         train_set, val_set = build_fake_cifar100(args)
         num_classes = 100
@@ -532,6 +570,7 @@ def main() -> None:
         "model": args.model,
         "dataset": args.dataset,
         "image_size": args.image_size,
+        "augmentation": "basic" if args.augmentation == "simple" else "stronger",
         "cgm_placement": args.cgm_placement,
         "cgm_reduction": args.cgm_reduction,
         "cgm_mode": args.cgm_mode,
