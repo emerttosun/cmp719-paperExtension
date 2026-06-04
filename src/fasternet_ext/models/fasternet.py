@@ -19,7 +19,7 @@ from torch import Tensor, nn
 CGMPlacement = Literal["none", "all", "early", "late", "s1", "s2", "s3", "s4", "s2s3", "s2s4"]
 CGMMode = Literal["sigmoid", "residual", "centered"]
 CGMType = Literal["se", "eca"]
-CGMPooling = Literal["gap", "gap_gmp"]
+CGMPooling = Literal["gap", "gap_gmp", "gap_std"]
 
 
 class DropPath(nn.Module):
@@ -61,8 +61,10 @@ class ChannelGateModule(nn.Module):
             raise ValueError(f"Unsupported CGM mode: {mode}")
         if gate_type not in {"se", "eca"}:
             raise ValueError(f"Unsupported CGM gate type: {gate_type}")
-        if pooling not in {"gap", "gap_gmp"}:
+        if pooling not in {"gap", "gap_gmp", "gap_std"}:
             raise ValueError(f"Unsupported CGM pooling: {pooling}")
+        if gate_type == "eca" and pooling == "gap_std":
+            raise ValueError("gap_std pooling is only supported with SE-style CGM.")
         if eca_kernel_size % 2 == 0:
             raise ValueError("ECA kernel size must be odd.")
         self.mode = mode
@@ -85,8 +87,9 @@ class ChannelGateModule(nn.Module):
                 bias=self.init_bias > 0.0,
             )
         else:
+            descriptor_channels = channels * 2 if pooling == "gap_std" else channels
             self.gate = nn.Sequential(
-                nn.Conv2d(channels, hidden, kernel_size=1),
+                nn.Conv2d(descriptor_channels, hidden, kernel_size=1),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(hidden, channels, kernel_size=1),
             )
@@ -129,7 +132,11 @@ class ChannelGateModule(nn.Module):
         return self.gate(pooled)
 
     def forward(self, x: Tensor) -> Tensor:
-        logits = self._gate_logits(self.avg_pool(x))
+        pooled = self.avg_pool(x)
+        if self.pooling == "gap_std":
+            std = x.var(dim=(2, 3), unbiased=False, keepdim=True).sqrt()
+            pooled = torch.cat([pooled, std], dim=1)
+        logits = self._gate_logits(pooled)
         if self.pooling == "gap_gmp":
             logits = logits + self._gate_logits(self.max_pool(x))
         gate = torch.sigmoid(logits)

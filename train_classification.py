@@ -88,9 +88,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cgm-pooling",
-        choices=["gap", "gap_gmp"],
+        choices=["gap", "gap_gmp", "gap_std"],
         default="gap",
-        help="Pooling signal used by CGM: GAP only, or shared-weight GAP+GMP.",
+        help="Pooling signal used by CGM: GAP only, shared-weight GAP+GMP, or concatenated GAP+STD.",
     )
     parser.add_argument(
         "--eca-kernel-size",
