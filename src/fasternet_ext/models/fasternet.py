@@ -167,14 +167,43 @@ class PartialConv3(nn.Module):
         eca_kernel_size: int = 3,
         cgm_pooling: CGMPooling = "gap",
         cgm_init_bias: float = 0.0,
+        pconv_reparam: bool = False,
     ) -> None:
         super().__init__()
         self.dim_conv3 = dim // n_div
         self.dim_untouched = dim - self.dim_conv3
         self.forward_type = forward_type
-        self.partial_conv3 = nn.Conv2d(
-            self.dim_conv3, self.dim_conv3, kernel_size=3, stride=1, padding=1, bias=False
-        )
+        self.pconv_reparam = pconv_reparam
+        if pconv_reparam:
+            self.partial_conv3 = nn.Sequential(
+                nn.Conv2d(
+                    self.dim_conv3,
+                    self.dim_conv3,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(self.dim_conv3),
+            )
+            self.partial_conv1 = nn.Sequential(
+                nn.Conv2d(
+                    self.dim_conv3,
+                    self.dim_conv3,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(self.dim_conv3),
+            )
+            self.partial_identity = nn.BatchNorm2d(self.dim_conv3)
+        else:
+            self.partial_conv3 = nn.Conv2d(
+                self.dim_conv3, self.dim_conv3, kernel_size=3, stride=1, padding=1, bias=False
+            )
+            self.partial_conv1 = None
+            self.partial_identity = None
         self.channel_gate = (
             ChannelGateModule(
                 self.dim_conv3,
@@ -190,6 +219,11 @@ class PartialConv3(nn.Module):
             else nn.Identity()
         )
 
+    def _partial_conv(self, x: Tensor) -> Tensor:
+        if not self.pconv_reparam:
+            return self.partial_conv3(x)
+        return self.partial_conv3(x) + self.partial_conv1(x) + self.partial_identity(x)
+
     def forward(self, x: Tensor) -> Tensor:
         if self.forward_type == "split_cat":
             return self.forward_split_cat(x)
@@ -199,13 +233,13 @@ class PartialConv3(nn.Module):
 
     def forward_slicing(self, x: Tensor) -> Tensor:
         x = x.clone()
-        x1 = self.partial_conv3(x[:, : self.dim_conv3, :, :])
+        x1 = self._partial_conv(x[:, : self.dim_conv3, :, :])
         x[:, : self.dim_conv3, :, :] = self.channel_gate(x1)
         return x
 
     def forward_split_cat(self, x: Tensor) -> Tensor:
         x1, x2 = torch.split(x, [self.dim_conv3, self.dim_untouched], dim=1)
-        x1 = self.channel_gate(self.partial_conv3(x1))
+        x1 = self.channel_gate(self._partial_conv(x1))
         return torch.cat((x1, x2), dim=1)
 
 
@@ -228,6 +262,7 @@ class MLPBlock(nn.Module):
         eca_kernel_size: int,
         cgm_pooling: CGMPooling,
         cgm_init_bias: float,
+        pconv_reparam: bool,
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
@@ -243,6 +278,7 @@ class MLPBlock(nn.Module):
             eca_kernel_size=eca_kernel_size,
             cgm_pooling=cgm_pooling,
             cgm_init_bias=cgm_init_bias,
+            pconv_reparam=pconv_reparam,
         )
         self.mlp = nn.Sequential(
             nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=False),
@@ -286,6 +322,7 @@ class BasicStage(nn.Module):
         eca_kernel_size: int,
         cgm_pooling: CGMPooling,
         cgm_init_bias: float,
+        pconv_reparam: bool,
     ) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
@@ -307,6 +344,7 @@ class BasicStage(nn.Module):
                     eca_kernel_size=eca_kernel_size,
                     cgm_pooling=cgm_pooling,
                     cgm_init_bias=cgm_init_bias,
+                    pconv_reparam=pconv_reparam,
                 )
                 for drop_path_i in drop_path
             ]
@@ -399,6 +437,7 @@ class FasterNet(nn.Module):
         eca_kernel_size: int = 3,
         cgm_pooling: CGMPooling = "gap",
         cgm_init_bias: float = 0.0,
+        pconv_reparam: bool = False,
     ) -> None:
         super().__init__()
         if norm_layer != "BN":
@@ -415,6 +454,7 @@ class FasterNet(nn.Module):
         self.eca_kernel_size = eca_kernel_size
         self.cgm_pooling = cgm_pooling
         self.cgm_init_bias = float(cgm_init_bias)
+        self.pconv_reparam = pconv_reparam
         self.num_features = int(embed_dim * 2 ** (len(depths) - 1))
 
         self.patch_embed = PatchEmbed(
@@ -450,6 +490,7 @@ class FasterNet(nn.Module):
                     eca_kernel_size=eca_kernel_size,
                     cgm_pooling=cgm_pooling,
                     cgm_init_bias=cgm_init_bias,
+                    pconv_reparam=pconv_reparam,
                 )
             )
             if stage_idx < len(depths) - 1:
@@ -593,6 +634,7 @@ def build_fasternet(
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
     cgm_init_bias: float = 0.0,
+    pconv_reparam: bool = False,
 ) -> FasterNet:
     cfg = MODEL_CONFIGS[model_name]
     patch_size = 2 if image_size <= 64 else 4
@@ -611,6 +653,7 @@ def build_fasternet(
         eca_kernel_size=eca_kernel_size,
         cgm_pooling=cgm_pooling,
         cgm_init_bias=cgm_init_bias,
+        pconv_reparam=pconv_reparam,
     )
 
 
@@ -625,19 +668,21 @@ def fasternet_t0(
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
     cgm_init_bias: float = 0.0,
+    pconv_reparam: bool = False,
 ) -> FasterNet:
     return build_fasternet(
-        "fasternet_t0",
-        num_classes,
-        image_size,
-        cgm_placement,
-        cgm_reduction,
-        cgm_mode,
-        cgm_alpha,
-        cgm_type,
-        eca_kernel_size,
-        cgm_pooling,
-        cgm_init_bias,
+        model_name="fasternet_t0",
+        num_classes=num_classes,
+        image_size=image_size,
+        cgm_placement=cgm_placement,
+        cgm_reduction=cgm_reduction,
+        cgm_mode=cgm_mode,
+        cgm_alpha=cgm_alpha,
+        cgm_type=cgm_type,
+        eca_kernel_size=eca_kernel_size,
+        cgm_pooling=cgm_pooling,
+        cgm_init_bias=cgm_init_bias,
+        pconv_reparam=pconv_reparam,
     )
 
 
@@ -652,17 +697,19 @@ def fasternet_t1(
     eca_kernel_size: int = 3,
     cgm_pooling: CGMPooling = "gap",
     cgm_init_bias: float = 0.0,
+    pconv_reparam: bool = False,
 ) -> FasterNet:
     return build_fasternet(
-        "fasternet_t1",
-        num_classes,
-        image_size,
-        cgm_placement,
-        cgm_reduction,
-        cgm_mode,
-        cgm_alpha,
-        cgm_type,
-        eca_kernel_size,
-        cgm_pooling,
-        cgm_init_bias,
+        model_name="fasternet_t1",
+        num_classes=num_classes,
+        image_size=image_size,
+        cgm_placement=cgm_placement,
+        cgm_reduction=cgm_reduction,
+        cgm_mode=cgm_mode,
+        cgm_alpha=cgm_alpha,
+        cgm_type=cgm_type,
+        eca_kernel_size=eca_kernel_size,
+        cgm_pooling=cgm_pooling,
+        cgm_init_bias=cgm_init_bias,
+        pconv_reparam=pconv_reparam,
     )

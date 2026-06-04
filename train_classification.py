@@ -121,6 +121,14 @@ def parse_args() -> argparse.Namespace:
             "and preserves the original random init for backward compatibility."
         ),
     )
+    parser.add_argument(
+        "--pconv-reparam",
+        action="store_true",
+        help=(
+            "Train PConv with RepVGG-style 3x3+1x1+identity branches on the processed "
+            "channel subset. Default keeps the original single 3x3 PConv."
+        ),
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--limit-train-batches", type=int, default=None)
     parser.add_argument("--limit-val-batches", type=int, default=None)
@@ -527,6 +535,7 @@ def main() -> None:
         eca_kernel_size=args.eca_kernel_size,
         cgm_pooling=args.cgm_pooling,
         cgm_init_bias=args.cgm_init_bias,
+        pconv_reparam=args.pconv_reparam,
     ).to(device)
 
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -538,7 +547,7 @@ def main() -> None:
     print(
         f"Model: {args.model} | CGM: {args.cgm_placement} | "
         f"type: {args.cgm_type} | pooling: {args.cgm_pooling} | "
-        f"mode: {args.cgm_mode} | params: {params:,}"
+        f"mode: {args.cgm_mode} | pconv_reparam: {args.pconv_reparam} | params: {params:,}"
     )
     if flops is not None:
         print(f"FLOPs: {flops / 1e6:.2f}M")
@@ -578,6 +587,7 @@ def main() -> None:
         "cgm_type": args.cgm_type,
         "cgm_pooling": args.cgm_pooling,
         "cgm_init_bias": args.cgm_init_bias,
+        "pconv_reparam": args.pconv_reparam,
         "eca_kernel_size": args.eca_kernel_size,
         "params": params,
         "flops": flops,

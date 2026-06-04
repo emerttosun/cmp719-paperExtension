@@ -666,6 +666,37 @@ Possible final-report phrasing if positive:
 
 > Adding per-channel spatial dispersion through a GAP+STD descriptor improved the early CGM result, suggesting that PConv channel selection benefits from seeing not only average activation strength but also spatial concentration.
 
+### 11.1 GAP+STD, Seed 42 Result
+
+Result:
+
+- Final epoch train acc: 59.32
+- Final epoch val acc: 50.15
+- Best val acc: 50.22 at epoch 19
+- Params: 2,751,882
+- FLOPs: 27.63M
+- Latency: 4.843 ms/image
+- Output files:
+  - `runs_cifar_t0_gapstd_e20_s42/fasternet_t0_early_metrics.csv`
+  - `runs_cifar_t0_gapstd_e20_s42/fasternet_t0_early_summary.json`
+
+Comparison:
+
+- `early sigmoid + GAP`, seed 42, 20e: final val `51.03`.
+- `early sigmoid + GAP+STD`, seed 42, 20e: final val `50.15`, best val `50.22`.
+- `none`, seed 42, 20e: final val `50.52`.
+
+Interpretation:
+
+- GAP+STD did not improve over the simpler GAP descriptor.
+- It also did not beat the no-CGM seed-42 baseline in this 20-epoch CIFAR T0 run.
+- The added descriptor signal may have made the gate harder to optimize, or the mean activation signal may already be sufficient for this lightweight CGM.
+- Do not run seed 7 unless we specifically want a stronger negative result; current evidence is enough to keep GAP as the main descriptor.
+
+Final-report phrasing:
+
+> We tested a GAP+STD descriptor to provide the gate with both mean activation and spatial dispersion, but it underperformed the simpler GAP descriptor in the CIFAR-100 T0 ablation. We therefore kept GAP as the default gate descriptor.
+
 ## 12. Final Report Additions To Remember
 
 Final rapora eklenmesi en mantikli seyler:
@@ -680,3 +711,73 @@ Final rapora eklenmesi en mantikli seyler:
    - Identity init did not beat vanilla early.
    - Centered/residual was tested as an identity-centered design variant; current CIFAR alpha 0.5 result is promising but still single-seed.
    - ECA was not the main winner.
+
+## 13. RepPConv Experiment Plan
+
+Motivation:
+
+- CGM scales the PConv-processed channels after the spatial 3x3 convolution.
+- The following PWConv1 can partially absorb static channel rescaling, which may explain why CGM gains are small and seed-sensitive.
+- RepPConv changes the PConv training parameterization itself: during training, the processed channel subset uses parallel 3x3, 1x1, and identity branches.
+- The intended inference story is structural re-parameterization: these branches can be folded into a single 3x3 convolution, so inference should recover the original PConv graph.
+
+Implemented switch:
+
+- CLI flag: `--pconv-reparam`
+- Default: off, preserving all previous runs.
+- When enabled, each PConv over `X_p` becomes:
+
+```text
+RepPConv(X_p) = BN(Conv3x3(X_p)) + BN(Conv1x1(X_p)) + BN(X_p)
+```
+
+Current implementation status:
+
+- Training-time RepPConv is implemented.
+- `--pconv-reparam` is passed from CLI to `build_fasternet` and then to every `PartialConv3`.
+- Summary JSON records `"pconv_reparam": true/false`.
+- Smoke tests passed:
+  - model forward with RepPConv only
+  - model forward with RepPConv + early CGM
+  - one-batch fake CIFAR training run
+- Branch folding / deploy conversion is not implemented yet. For final report claims about inference latency matching baseline, we must either implement and test folding or phrase it as theoretical/future deploy conversion.
+
+Important interpretation note:
+
+- Training-time parameter count and FLOPs increase because the branches are present.
+- The theoretical benefit is that these branches are foldable into one 3x3 PConv at inference.
+- Until folding is implemented and verified, latency measured by `--measure-latency` is training-graph latency, not fused deploy latency.
+
+First Colab smoke/real run:
+
+```bash
+!python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --seed 42 --cgm-placement none --pconv-reparam --augmentation simple --measure-latency --output-dir runs_cifar_t0_reppconv_e20_s42
+```
+
+Compare against:
+
+- Baseline T0 CIFAR simple 20e seed 42: final val `50.52`.
+- CGM early T0 CIFAR simple 20e seed 42: final val `51.03`.
+
+Decision rule:
+
+- If RepPConv seed 42 is near or above CGM early (`51.03`), run 40e and/or seed 7.
+- If RepPConv clearly underperforms, do not expand it for final report.
+
+If first run is promising, next commands:
+
+```bash
+!python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --seed 42 --cgm-placement early --cgm-mode sigmoid --pconv-reparam --augmentation simple --measure-latency --save-gate-stats --gate-hist-bins 20 --gate-stats-batches 10 --output-dir runs_cifar_t0_reppconv_cgm_e20_s42
+```
+
+```bash
+!python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --seed 7 --cgm-placement none --pconv-reparam --augmentation simple --measure-latency --output-dir runs_cifar_t0_reppconv_e20_s7
+```
+
+Final report framing if positive:
+
+> RepPConv improves the PConv training parameterization directly through structural over-parameterization, whereas CGM applies a lightweight input-dependent channel rescaling after PConv. This tests whether improving the spatial branch itself provides a stronger accuracy-latency trade-off than post-PConv gating.
+
+Final report framing if negative:
+
+> We also tested a structurally over-parameterized RepPConv training branch, but it did not improve the small-scale CIFAR-100 result enough to justify replacing the simpler PConv+CGM design.
