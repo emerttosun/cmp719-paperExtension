@@ -736,17 +736,25 @@ Current implementation status:
 - Training-time RepPConv is implemented.
 - `--pconv-reparam` is passed from CLI to `build_fasternet` and then to every `PartialConv3`.
 - Summary JSON records `"pconv_reparam": true/false`.
+- Deploy fusion is implemented:
+  - Conv3x3+BN is folded.
+  - Conv1x1+BN is folded and zero-padded into a 3x3 kernel.
+  - Identity+BN is converted into a 3x3 identity kernel.
+  - The three fused kernels and biases are summed into one 3x3 Conv2d.
+- CLI flags:
+  - `--pconv-deploy-latency`: fuse RepPConv branches before measuring latency.
+  - `--verify-pconv-deploy`: record max absolute output difference before/after fusion.
 - Smoke tests passed:
   - model forward with RepPConv only
   - model forward with RepPConv + early CGM
   - one-batch fake CIFAR training run
-- Branch folding / deploy conversion is not implemented yet. For final report claims about inference latency matching baseline, we must either implement and test folding or phrase it as theoretical/future deploy conversion.
+  - deploy fusion max abs diff around `1e-9`
 
 Important interpretation note:
 
 - Training-time parameter count and FLOPs increase because the branches are present.
-- The theoretical benefit is that these branches are foldable into one 3x3 PConv at inference.
-- Until folding is implemented and verified, latency measured by `--measure-latency` is training-graph latency, not fused deploy latency.
+- With `--pconv-deploy-latency`, latency is measured after folding RepPConv branches into a single 3x3 PConv.
+- Without `--pconv-deploy-latency`, latency is the unfused training-graph latency and should not be used as deploy latency.
 
 First Colab smoke/real run:
 
@@ -763,6 +771,33 @@ Decision rule:
 
 - If RepPConv seed 42 is near or above CGM early (`51.03`), run 40e and/or seed 7.
 - If RepPConv clearly underperforms, do not expand it for final report.
+
+### 13.1 RepPConv, Seed 42 Result
+
+Result:
+
+- Final epoch train acc: 59.554
+- Final epoch val acc: 50.71
+- Best val acc: 50.74 at epoch 19
+- Params: 2,780,840
+- FLOPs: 28.02M
+- Latency: 6.951 ms/image
+- Output files:
+  - `runs_cifar_t0_reppconv_e20_s42/fasternet_t0_none_metrics.csv`
+  - `runs_cifar_t0_reppconv_e20_s42/fasternet_t0_none_summary.json`
+
+Comparison:
+
+- Baseline T0 CIFAR simple 20e seed 42: final val `50.52`.
+- CGM early T0 CIFAR simple 20e seed 42: final val `51.03`.
+- RepPConv T0 CIFAR simple 20e seed 42: final val `50.71`, best val `50.74`.
+
+Interpretation:
+
+- RepPConv improves over the seed-42 no-CGM baseline by `+0.19` final validation accuracy.
+- It does not beat the seed-42 early CGM result (`51.03`), so RepPConv alone is not yet a stronger replacement.
+- Training-time latency is much higher because the current implementation keeps the 3x3, 1x1, and identity branches active. This is not the fused deploy latency.
+- Next best run, if GPU budget allows, is RepPConv + early CGM seed 42. This checks whether improving PConv's training parameterization and adding post-PConv input-dependent gating are complementary.
 
 If first run is promising, next commands:
 
@@ -781,3 +816,26 @@ Final report framing if positive:
 Final report framing if negative:
 
 > We also tested a structurally over-parameterized RepPConv training branch, but it did not improve the small-scale CIFAR-100 result enough to justify replacing the simpler PConv+CGM design.
+
+### 13.2 RepPConv Deploy Latency Command
+
+For a trained RepPConv run, measure deploy/fused latency by adding:
+
+```bash
+--pconv-deploy-latency --verify-pconv-deploy
+```
+
+Full command for RepPConv + early CGM:
+
+```bash
+!python train_classification.py --dataset cifar100 --dataset-source hf --image-size 32 --model fasternet_t0 --epochs 20 --batch-size 128 --seed 42 --cgm-placement early --cgm-mode sigmoid --pconv-reparam --pconv-deploy-latency --verify-pconv-deploy --augmentation simple --measure-latency --save-gate-stats --gate-hist-bins 20 --gate-stats-batches 10 --output-dir runs_cifar_t0_reppconv_cgm_deploy_e20_s42
+```
+
+Expected summary fields:
+
+- `pconv_reparam: true`
+- `pconv_deployed_for_latency: true`
+- `pconv_deploy_max_abs_diff` should be near `1e-6` or lower.
+- `deploy_params`
+- `deploy_flops`
+- `latency_ms_b1` is fused/deploy latency.

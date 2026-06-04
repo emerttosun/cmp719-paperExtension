@@ -129,6 +129,19 @@ def parse_args() -> argparse.Namespace:
             "channel subset. Default keeps the original single 3x3 PConv."
         ),
     )
+    parser.add_argument(
+        "--pconv-deploy-latency",
+        action="store_true",
+        help=(
+            "If --pconv-reparam is used, fuse RepPConv branches into single 3x3 PConv "
+            "layers before measuring latency."
+        ),
+    )
+    parser.add_argument(
+        "--verify-pconv-deploy",
+        action="store_true",
+        help="When deploying RepPConv, record the max absolute output difference before and after fusion.",
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--limit-train-batches", type=int, default=None)
     parser.add_argument("--limit-val-batches", type=int, default=None)
@@ -603,6 +616,27 @@ def main() -> None:
             )
         )
     if args.measure_latency:
+        if args.pconv_deploy_latency:
+            model.eval()
+            deploy_diff = None
+            if args.verify_pconv_deploy:
+                sample = torch.randn(2, 3, args.image_size, args.image_size, device=device)
+                with torch.no_grad():
+                    before = model(sample)
+            switch_to_deploy = getattr(model, "switch_reppconv_to_deploy", None)
+            if switch_to_deploy is not None:
+                switch_to_deploy()
+            if args.verify_pconv_deploy:
+                with torch.no_grad():
+                    after = model(sample)
+                deploy_diff = float((before - after).abs().max().item())
+                summary["pconv_deploy_max_abs_diff"] = deploy_diff
+                print(f"RepPConv deploy max abs diff: {deploy_diff:.6g}")
+            summary["pconv_deployed_for_latency"] = True
+            summary["deploy_params"] = count_parameters(model)
+            summary["deploy_flops"] = try_count_flops(model, args.image_size, device)
+        else:
+            summary["pconv_deployed_for_latency"] = False
         summary["latency_ms_b1"] = measure_latency_ms(model, args.image_size, device, batch_size=1)
         print(f"Latency: {summary['latency_ms_b1']:.3f} ms/image")
 

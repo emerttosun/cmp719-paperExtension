@@ -224,6 +224,70 @@ class PartialConv3(nn.Module):
             return self.partial_conv3(x)
         return self.partial_conv3(x) + self.partial_conv1(x) + self.partial_identity(x)
 
+    @staticmethod
+    def _fuse_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> tuple[Tensor, Tensor]:
+        weight = conv.weight
+        bias = torch.zeros(weight.shape[0], device=weight.device, dtype=weight.dtype)
+        scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+        fused_weight = weight * scale.reshape(-1, 1, 1, 1)
+        fused_bias = bn.bias + (bias - bn.running_mean) * scale
+        return fused_weight, fused_bias
+
+    def _fuse_identity_bn(self) -> tuple[Tensor, Tensor]:
+        identity = torch.zeros(
+            self.dim_conv3,
+            self.dim_conv3,
+            3,
+            3,
+            device=self.partial_identity.weight.device,
+            dtype=self.partial_identity.weight.dtype,
+        )
+        channels = torch.arange(self.dim_conv3, device=identity.device)
+        identity[channels, channels, 1, 1] = 1.0
+        scale = self.partial_identity.weight / torch.sqrt(
+            self.partial_identity.running_var + self.partial_identity.eps
+        )
+        fused_weight = identity * scale.reshape(-1, 1, 1, 1)
+        fused_bias = self.partial_identity.bias - self.partial_identity.running_mean * scale
+        return fused_weight, fused_bias
+
+    @staticmethod
+    def _pad_1x1_to_3x3(kernel: Tensor) -> Tensor:
+        padded = torch.zeros(
+            kernel.shape[0],
+            kernel.shape[1],
+            3,
+            3,
+            device=kernel.device,
+            dtype=kernel.dtype,
+        )
+        padded[:, :, 1:2, 1:2] = kernel
+        return padded
+
+    @torch.no_grad()
+    def switch_to_deploy(self) -> None:
+        if not self.pconv_reparam:
+            return
+        conv3, bn3 = self.partial_conv3[0], self.partial_conv3[1]
+        conv1, bn1 = self.partial_conv1[0], self.partial_conv1[1]
+        kernel3, bias3 = self._fuse_conv_bn(conv3, bn3)
+        kernel1, bias1 = self._fuse_conv_bn(conv1, bn1)
+        kernel_id, bias_id = self._fuse_identity_bn()
+        fused_conv = nn.Conv2d(
+            self.dim_conv3,
+            self.dim_conv3,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=True,
+        ).to(device=kernel3.device, dtype=kernel3.dtype)
+        fused_conv.weight.copy_(kernel3 + self._pad_1x1_to_3x3(kernel1) + kernel_id)
+        fused_conv.bias.copy_(bias3 + bias1 + bias_id)
+        self.partial_conv3 = fused_conv
+        self.partial_conv1 = None
+        self.partial_identity = None
+        self.pconv_reparam = False
+
     def forward(self, x: Tensor) -> Tensor:
         if self.forward_type == "split_cat":
             return self.forward_split_cat(x)
@@ -607,6 +671,13 @@ class FasterNet(nn.Module):
             if isinstance(module, ChannelGateModule) and module.latest_scale is not None:
                 vectors[name] = self._channel_means(module.latest_scale)
         return vectors
+
+    @torch.no_grad()
+    def switch_reppconv_to_deploy(self) -> None:
+        for module in self.modules():
+            if isinstance(module, PartialConv3):
+                module.switch_to_deploy()
+        self.pconv_reparam = False
 
 
 @dataclass(frozen=True)
