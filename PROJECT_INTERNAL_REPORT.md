@@ -524,3 +524,92 @@ Proposal'da CGM bottleneck reduction ratio `r` icin ablation planlanmisti. Varsa
 Reduction ratio yorumu:
 
 > Hem T0 hem T1 icin en iyi sonuc `r=4` ile geldi. `r=2` daha fazla gate kapasitesi sunsa da accuracy'yi artirmadi; `r=8` ise daha hafif olmasina ragmen etkiyi zayiflatti. Latency farklari reduction ratio'lar arasinda kucuk oldugu icin `r=4` en iyi accuracy-overhead trade-off olarak kaldi.
+
+## 18. Son Eklenen Sonuclar ve Duzeltmeler
+
+Bu bolum, sonradan elde edilen ama yukaridaki ana tablolara tam islenmemis sonuclari toplar.
+
+### 18.1 Tiny-ImageNet Early Sigmoid Tekrari
+
+Tiny-ImageNet 224 uzerinde early sigmoid sonucu tekrar calistirildi. Bu sonuc, centered denemelerden onceki proposal'a en yakin CGM konfigudur: `early + sigmoid + r=4 + GAP`.
+
+| Dataset | Variant | Epoch | Seed | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| Tiny-ImageNet 224 | `none` | 20 | 42 | 61.54 | 45.28 | 2,880,700 | 337.017M | 1.016 ms | Guncel baseline |
+| Tiny-ImageNet 224 | `early + sigmoid` | 20 | 42 | 60.40 | 45.06 | 2,881,202 | 337.080M | 1.188 ms | Baseline'a cok yakin ama gecemedi |
+| Tiny-ImageNet 224 | `early + centered, alpha=0.5` | 20 | 42 | 60.16 | 44.42 | 2,881,202 | 337.080M | 1.253 ms | Genis suppress/amplify araligi zararli |
+| Tiny-ImageNet 224 | `early + centered, alpha=0.25` | 20 | 42 | 60.20 | 44.47 | 2,881,202 | 337.080M | 1.229 ms | Daha kontrollu ama baseline altinda |
+
+Tiny icin guncel yorum:
+
+> Proposal'a en yakin sigmoid CGM, Tiny-ImageNet'te centered varyantlardan daha iyi ve baseline'a yakin kaldi (`45.06` vs `45.28`). Ancak yine de baseline'i gecmedi ve latency'yi artirdi. Bu nedenle Tiny tarafinda "CGM aktif calisiyor ama transfer kazanci yok" yorumu en dogru yorumdur.
+
+Tiny early sigmoid gate mean degerleri:
+
+```text
+stages.0.blocks.0.spatial_mixing.channel_gate = 0.5678
+stages.2.blocks.0.spatial_mixing.channel_gate = 0.5796
+stages.2.blocks.1.spatial_mixing.channel_gate = 0.4168
+```
+
+Bu gate davranisi su anlama gelir:
+
+- Sigmoid mode'da scale = gate oldugu icin tum degerler `0-1` araliginda suppression derecesidir.
+- Stage 1 ve Stage 2 block 0, PConv kanallarini ortalamada yaklasik `0.57-0.58` ile geciriyor.
+- Stage 2 block 1 daha sert bastiriyor (`0.42` civari).
+- Bu bastirma Tiny'de validation kazancina donusmedi.
+
+### 18.2 Tiny-ImageNet 40 Epoch Baseline ve Overfit
+
+Tiny-ImageNet 224 baseline 40 epoch calistirildi.
+
+| Dataset | Variant | Image Size | Epoch | Seed | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Tiny-ImageNet | `none` | 224 | 20 | 42 | 61.54 | 45.28 | 2,880,700 | 337.017M | 1.016 ms | 20e baseline |
+| Tiny-ImageNet | `none` | 224 | 40 | 42 | 82.86 | 46.84 | 2,880,700 | 337.017M | 1.012 ms | Val artti ama train-val gap cok buyudu |
+
+Yorum:
+
+> 40 epoch baseline, validation'i `45.28 -> 46.84` artirdi fakat train accuracy `82.86`'ya cikti. Train-val farki yaklasik `36` puan oldugu icin Tiny tarafinda mevcut recipe ciddi overfit ediyor. Bu durumda CGM'yi Tiny'de daha uzun egitimle test etmek tek basina yeterli olmayabilir; daha guclu augmentation/regularization gerekebilir.
+
+### 18.3 Tiny-ImageNet 64x64 Baseline
+
+Tiny-ImageNet'in native cozunurlugune daha yakin `64x64` baseline denendi.
+
+| Dataset | Variant | Image Size | Epoch | Seed | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Tiny-ImageNet | `none` | 64 | 40 | 42 | 91.64 | 42.66 | 2,879,260 | 109.020M | 1.023 ms | 224'e gore daha dusuk val, daha sert overfit |
+
+Yorum:
+
+> Tiny 64x64, FLOPs'u dusurdu ama validation'i toparlamadi. Aksine train accuracy `91.64`, validation `42.66` oldu. Bu, Tiny tarafindaki sorunun sadece input resolution olmadigini; mevcut training recipe'nin overfit ettigini gosteriyor.
+
+### 18.4 T1 Early Sigmoid Seed 7
+
+T1 40 epoch icin early sigmoid seed 7 de calistirildi.
+
+| Model | Variant | Epoch | Seed | Train Acc | Val Acc | Params | FLOPs | Latency | Yorum |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| T1 | `none` | 40 | 42 | 85.66 | 56.71 | 6,440,164 | 69.807M | 1.056 ms | Baseline seed 42 |
+| T1 | `early + sigmoid` | 40 | 42 | 84.90 | 57.37 | 6,441,416 | 69.816M | 1.244 ms | +0.66 vs seed42 baseline |
+| T1 | `early + sigmoid` | 40 | 7 | 85.40 | 56.79 | 6,441,416 | 69.816M | 1.242 ms | Baseline seed7 40e eksik |
+
+Yorum:
+
+> T1 early sigmoid seed 7 sonucu `56.79`. Bu, seed 42 early sonucundan dusuk ama seed 42 baseline'in biraz ustunde. Ancak adil iki-seed T1 40e karsilastirmasi icin baseline seed 7 henuz eksik. Bu nedenle T1 icin en dogru ifade: "40 epoch seed 42'de net kazanc var; seed 7 early sonucu makul ama baseline seed7 olmadan reproducibility claim sinirli."
+
+### 18.5 Corrected Gate Stats Aggregation Notu
+
+Gate analysis pipeline iki kere iyilestirildi:
+
+1. Ilk hata: latency measurement random input forward'i, validation'dan gelen son gate degerlerini ezebiliyordu.
+2. Ikinci hata: validation gate stats birden fazla batch istense bile efektif olarak son batch'e yakin bilgi verebiliyordu.
+
+Guncel pipeline:
+
+- Gate stats validation loader uzerinde ayrica toplanir.
+- `--gate-stats-batches` kadar validation batch'i kullanilir.
+- JSON'a `gate_stats_num_images` yazilir.
+- `gate_vectors` ve `scale_vectors`, secilen validation batch'leri uzerinden kanal bazli ortalama verir.
+
+Bu nedenle raporda kullanilacak gate analysis icin yeni/corrected summary'ler tercih edilmeli. Eski random-input veya tek-batch etkisi tasiyan plotlar nihai yorum icin kullanilmamali.
